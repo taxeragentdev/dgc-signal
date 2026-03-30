@@ -1,9 +1,10 @@
 require('dotenv').config();
-const scanner = require('./scanner');
+
+// Önce Telegram örneği oluşsun; scanner içinde telegram require edilir (cache).
 const telegram = require('./telegram');
+const scanner = require('./scanner');
 const winston = require('winston');
 
-// Setup main logger
 const logger = winston.createLogger({
     level: 'info',
     format: winston.format.combine(
@@ -19,7 +20,6 @@ const logger = winston.createLogger({
 async function main() {
     logger.info('🚀 Kripto Sinyal Botu Başlatılıyor...');
 
-    // Log the provided token (first 10 chars for safety)
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) {
         logger.error('❌ TELEGRAM_BOT_TOKEN bulunamadı! .env dosyasını kontrol edin.');
@@ -27,17 +27,18 @@ async function main() {
     }
     logger.info(`📡 Telegram Bot Token: ${token.substring(0, 10)}... loaded.`);
 
-    // Start scanning loop (Continuous)
-    scanner.start();
+    await telegram.launch();
+    logger.info('✅ Telegram polling hazır.');
 
-    const scanInterval = parseInt(process.env.SCAN_INTERVAL) || 300000; 
+    const intervalMs = parseInt(process.env.SCAN_INTERVAL, 10) || 300000;
+    logger.info(`📊 Sürekli tarama: tur sonrası bekleme ${intervalMs / 1000}s (SCAN_INTERVAL).`);
 
-    logger.info(`✅ Bot aktif! Tarama aralığı: ${scanInterval / 1000} saniye.`);
-    
-    // Initial message to user if possible
-    logger.info('💡 Lütfen Telegram botuna gidip /start komutunu verin.');
+    scanner.start().catch((err) => {
+        logger.error(`❌ Tarama döngüsü: ${err.message}`);
+    });
 
-    // Handle termination signals
+    logger.info('💡 Sinyal almak için botta /start veya herhangi bir komut kullanın (sohbet ID bağlanır).');
+
     const shutdown = async (signal) => {
         logger.info(`🛑 ${signal} alındı. Bot kapatılıyor...`);
         try {

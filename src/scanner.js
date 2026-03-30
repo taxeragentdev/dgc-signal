@@ -7,7 +7,8 @@ const winston = require('winston');
 class MarketScanner {
     constructor() {
         this.timeframes = ['5m', '15m', '30m', '1h', '4h'];
-        this.lastSignals = {}; // Symbol + Timeframe key to prevent duplicate alerts
+        this.lastSignals = {};
+        this._scanChain = Promise.resolve();
         this.logger = winston.createLogger({
             level: 'info',
             format: winston.format.json(),
@@ -15,54 +16,91 @@ class MarketScanner {
         });
     }
 
-    /**
-     * Scans all symbols and timeframes.
-     * @param {Array} tfs - Specific timeframes to scan (default: all)
-     */
+    getLoopIntervalMs() {
+        const n = parseInt(process.env.SCAN_INTERVAL, 10);
+        return Number.isFinite(n) && n > 0 ? n : 300000;
+    }
+
     async scanAll(tfs = this.timeframes) {
+        const run = () => this._runScanAll(tfs);
+        const p = this._scanChain.then(run, run);
+        this._scanChain = p.catch(() => {});
+        return p;
+    }
+
+    async _runScanAll(tfs) {
         this.logger.info(`Starting market scan for ${coins.length} symbols...`);
+
+        let pairs = 0;
+        let signals = 0;
 
         for (const symbol of coins) {
             for (const tf of tfs) {
+                pairs++;
                 try {
-                    await this.scanSymbol(symbol, tf);
+                    const sig = await this.scanSymbol(symbol, tf, false);
+                    if (sig) signals++;
                 } catch (error) {
-                    // Already logged in scanSymbol, just continue
+                    this.logger.error(`Scan error (${symbol} - ${tf}): ${error.message}`);
                 }
                 await new Promise(resolve => setTimeout(resolve, 200));
             }
         }
+
+        this.logger.info(`Scan round finished: pairs=${pairs}, newSignals=${signals}`);
+        return { pairs, signals };
     }
 
     /**
-     * Scans a single symbol and timeframe.
-     * @param {string} symbol 
-     * @param {string} timeframe 
-     * @param {boolean} isManual - If true, returns the signal object directly
+     * @param {boolean} isManual
+     * @returns {Promise<null|object>} Otomatik: sinyal objesi veya null. Manuel: { manual, signal?|evaluation? }
      */
     async scanSymbol(symbol, timeframe, isManual = false) {
         try {
             const candles = await exchange.fetchOHLCV(symbol, timeframe, 200);
             if (!candles || candles.length < 200) {
-                if (isManual) throw new Error(`${symbol} için yeterli veri (200 mum) bulunamadı.`);
+                if (isManual) {
+                    return {
+                        manual: true,
+                        evaluation: {
+                            signal: null,
+                            rawScore: 0,
+                            rsi: null,
+                            trend: '',
+                            blockedByRsi: false,
+                            threshold: confluence.getThreshold(),
+                            reason: 'insufficient_candles'
+                        }
+                    };
+                }
                 return null;
             }
 
-            const signal = confluence.analyze(candles);
+            const ev = confluence.evaluate(candles);
+            const signal = ev.signal;
 
-            if (signal) {
-                const lastCandleTime = candles[candles.length - 1].timestamp;
-                const signalKey = `${symbol}_${timeframe}_${signal.type}_${lastCandleTime}`;
-
-                if (isManual || !this.lastSignals[signalKey]) {
-                    if (!isManual) {
-                        this.lastSignals[signalKey] = true;
-                        this.logger.info(`🚨 SIGNAL FOUND: ${symbol} ${timeframe} ${signal.type}`);
-                        await telegram.sendSignal(symbol, timeframe, signal);
-                    }
-                    return signal;
-                }
+            if (!signal) {
+                if (isManual) return { manual: true, evaluation: ev };
+                return null;
             }
+
+            const lastCandleTime = candles[candles.length - 1].timestamp;
+            const signalKey = `${symbol}_${timeframe}_${signal.type}_${lastCandleTime}`;
+
+            if (isManual || !this.lastSignals[signalKey]) {
+                if (!isManual) {
+                    this.lastSignals[signalKey] = true;
+                    this.logger.info(`🚨 SIGNAL FOUND: ${symbol} ${timeframe} ${signal.type}`);
+                    const sent = await telegram.sendSignal(symbol, timeframe, signal);
+                    if (!sent) {
+                        this.logger.error(`Sinyal Telegram'a iletilemedi (${symbol} ${timeframe})`);
+                    }
+                }
+                if (isManual) return { manual: true, signal };
+                return signal;
+            }
+
+            if (isManual) return { manual: true, signal };
             return null;
         } catch (error) {
             this.logger.error(`Scan error (${symbol} - ${timeframe}): ${error.message}`);
@@ -71,20 +109,16 @@ class MarketScanner {
         }
     }
 
-    /**
-     * Start the continuous scan loop.
-     */
     async start() {
-        this.logger.info("📡 Sürekli Tarama Modu Aktif! (7/24 Sinyal Avcılığı)");
-        
+        const intervalMs = this.getLoopIntervalMs();
+        this.logger.info(`📡 Sürekli tarama: her tur bitince ${intervalMs / 1000}s bekleme, sonra tekrar.`);
+
         while (true) {
             try {
                 await this.scanAll();
-                // Bir tur bittikten sonra 1 saniye güvenlik payı bırakıp hemen tekrar başla
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise(resolve => setTimeout(resolve, intervalMs));
             } catch (error) {
                 this.logger.error(`Döngü hatası: ${error.message}`);
-                // Hata durumunda 5 saniye bekle (rate limit vb. durumlar için)
                 await new Promise(resolve => setTimeout(resolve, 5000));
             }
         }

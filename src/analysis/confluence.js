@@ -3,15 +3,31 @@ const indicators = require('./indicators');
 const smc = require('./smartMoney');
 
 class ConfluenceManager {
-    /**
-     * Analyzes all data and calculates a signal score.
-     * @param {Array} candles - OHLCV data
-     * @returns {Object|null} - Signal object or null if no signal
-     */
-    analyze(candles) {
-        if (candles.length < 200) return null;
+    /** .env: SIGNAL_THRESHOLD (varsayılan 55, tipik 45–65) */
+    getThreshold() {
+        const n = parseInt(process.env.SIGNAL_THRESHOLD, 10);
+        if (Number.isFinite(n) && n >= 35 && n <= 95) return n;
+        return 55;
+    }
 
-        const lastCandle = candles[candles.length - 1];
+    /**
+     * Ham skor + sinyal (yoksa neden).
+     * @param {Array} candles
+     */
+    evaluate(candles) {
+        const threshold = this.getThreshold();
+        if (!candles || candles.length < 200) {
+            return {
+                signal: null,
+                rawScore: 0,
+                rsi: null,
+                trend: '',
+                blockedByRsi: false,
+                threshold,
+                reason: 'insufficient_candles'
+            };
+        }
+
         const indicatorData = indicators.calculate(candles);
         const pivots = structure.findPivots(candles);
         const trend = structure.getMarketStructure(pivots);
@@ -20,30 +36,22 @@ class ConfluenceManager {
         const ob = smc.detectOrderBlock(candles);
 
         let score = 0;
-        let signalType = null; // 'LONG' or 'SHORT'
 
-        // 1. Trend Alignment (20 points)
-        if (indicatorData.currentPrice > indicatorData.ema200) {
-            score += 10; // Bullish context
-        } else {
-            score -= 10; // Bearish context
-        }
+        if (indicatorData.currentPrice > indicatorData.ema200) score += 10;
+        else score -= 10;
 
         if (indicatorData.ema50 > indicatorData.ema200) score += 10;
 
-        // 2. Momentum (MACD) (15 points)
         const macd = indicatorData.macd;
         if (macd && macd.MACD && macd.signal) {
             if (macd.MACD > macd.signal) score += 15;
             else score -= 15;
         }
 
-        // 3. RSI Overbought/Oversold Filter (Safety)
         const rsi = indicatorData.rsi;
-        if (rsi > 70) score -= 30; // Danger: Buy at top
-        if (rsi < 30) score += 30; // Opportunity: Sell at bottom
+        if (rsi > 70) score -= 30;
+        if (rsi < 30) score += 30;
 
-        // 4. SMC (40 points total)
         if (sweep) {
             if (sweep.type === 'BULLISH') score += 20;
             if (sweep.type === 'BEARISH') score -= 20;
@@ -59,51 +67,69 @@ class ConfluenceManager {
             if (ob.type === 'BEARISH') score -= 10;
         }
 
-        // Finalize Signal
-        if (score >= 60) signalType = 'LONG';
-        else if (score <= -60) signalType = 'SHORT';
+        let signalType = null;
+        if (score >= threshold) signalType = 'LONG';
+        else if (score <= -threshold) signalType = 'SHORT';
 
-        if (!signalType) return null;
+        let blockedByRsi = false;
+        if (signalType === 'LONG' && rsi > 72) {
+            blockedByRsi = true;
+            signalType = null;
+        }
+        if (signalType === 'SHORT' && rsi < 28) {
+            blockedByRsi = true;
+            signalType = null;
+        }
 
-        // ❌ Safety Filter: Don't LONG at RSI > 75, Don't SHORT at RSI < 25
-        if (signalType === 'LONG' && rsi > 72) return null;
-        if (signalType === 'SHORT' && rsi < 28) return null;
-
-        // Calculate SL and TP
-        const slTp = this.calculateSLTP(signalType, indicatorData.currentPrice, indicatorData.atr, pivots);
+        let signal = null;
+        if (signalType) {
+            const slTp = this.calculateSLTP(signalType, indicatorData.currentPrice, indicatorData.atr, pivots);
+            signal = {
+                type: signalType,
+                score: Math.abs(score),
+                price: indicatorData.currentPrice,
+                rsi,
+                trend,
+                indicators: indicatorData,
+                pivots,
+                smc: { fvg, sweep, ob },
+                sl: slTp.sl,
+                tp: slTp.tp
+            };
+        }
 
         return {
-            type: signalType,
-            score: Math.abs(score),
-            price: indicatorData.currentPrice,
-            rsi: rsi,
-            trend: trend,
-            indicators: indicatorData,
-            pivots: pivots,
-            smc: { fvg, sweep, ob },
-            sl: slTp.sl,
-            tp: slTp.tp
+            signal,
+            rawScore: score,
+            rsi,
+            trend,
+            blockedByRsi,
+            threshold,
+            reason: null
         };
     }
 
     /**
-     * Calculates Stop Loss and Take Profit levels.
+     * @param {Array} candles
+     * @returns {Object|null}
      */
+    analyze(candles) {
+        return this.evaluate(candles).signal;
+    }
+
     calculateSLTP(type, price, atr, pivots) {
         let sl, tp1, tp2, tp3;
-        const multiplier = 1.5; // ATR multiplier for SL
+        const multiplier = 1.5;
 
         if (type === 'LONG') {
-            // SL: Recent swing low or ATR-based
             const lastLow = pivots.lows.length > 0 ? pivots.lows[pivots.lows.length - 1].price : price - atr * 2;
             sl = Math.min(lastLow, price - (atr * multiplier));
-            
+
             const risk = price - sl;
             tp1 = price + risk * 1.5;
             tp2 = price + risk * 2.5;
             tp3 = price + risk * 4;
         } else {
-            // SL: Recent swing high or ATR-based
             const lastHigh = pivots.highs.length > 0 ? pivots.highs[pivots.highs.length - 1].price : price + atr * 2;
             sl = Math.max(lastHigh, price + (atr * multiplier));
 
