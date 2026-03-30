@@ -72,11 +72,22 @@ class MarketScanner {
     }
 
     /**
-     * Start the interval scan.
+     * Start the continuous scan loop.
      */
-    start(intervalMs = 300000) {
-        this.scanAll(); // Immediate scan
-        setInterval(() => this.scanAll(), intervalMs);
+    async start() {
+        this.logger.info("📡 Sürekli Tarama Modu Aktif! (7/24 Sinyal Avcılığı)");
+        
+        while (true) {
+            try {
+                await this.scanAll();
+                // Bir tur bittikten sonra 1 saniye güvenlik payı bırakıp hemen tekrar başla
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            } catch (error) {
+                this.logger.error(`Döngü hatası: ${error.message}`);
+                // Hata durumunda 5 saniye bekle (rate limit vb. durumlar için)
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+        }
     }
 }
 

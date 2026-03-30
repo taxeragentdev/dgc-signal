@@ -31,7 +31,19 @@ class TelegramManager {
         this.bot.command('help', (ctx) => this.sendHelp(ctx));
 
         this.bot.command('status', (ctx) => {
-            ctx.reply('✅ Bot aktif ve Hyperliquid üzerinden veri tarıyor.\n\nSon tarama durumu: Stabil');
+            ctx.reply('✅ *Bot Durumu:* Aktif\n📡 *Market:* Hyperliquid\n🔄 *Mod:* 7/24 Sürekli Tarama\n\n_Bot şu an 16+ coini tüm zaman dilimlerinde döngüsel olarak tarıyor. Sinyal kriterleri (Skor > 70) oluştuğunda burada göreceksiniz._', { parse_mode: 'Markdown' });
+        });
+
+        this.bot.command('check', async (ctx) => {
+            ctx.reply('🧪 *Borsa ve Veri Akışı Test Ediliyor...*', { parse_mode: 'Markdown' });
+            try {
+                const exchange = require('./exchange');
+                const candles = await exchange.fetchOHLCV('BTC/USDC:USDC', '15m', 2);
+                const lastPrice = candles[candles.length - 1].close;
+                ctx.reply(`✅ *Bağlantı Kuruldu!*\n\n💰 *Anlık BTC:* \`$${lastPrice}\`\n📊 *Durum:* Veriler başarıyla çekiliyor. Bot şu an arka planda sinyal avına devam ediyor.`, { parse_mode: 'Markdown' });
+            } catch (error) {
+                ctx.reply(`❌ *Borsa Hatası:* ${error.message}`);
+            }
         });
 
         this.bot.command('list', (ctx) => {
@@ -41,8 +53,18 @@ class TelegramManager {
 
         this.bot.command('scan', async (ctx) => {
             const args = ctx.message.text.split(' ');
-            if (args.length < 2) {
-                return ctx.reply('❓ Kullanım: `/scan BTC` veya `/scan BTC 15m`', { parse_mode: 'Markdown' });
+
+            // 🔎 TOPLU TARAMA MODU (Parametresiz)
+            if (args.length === 1) {
+                ctx.reply('🔎 *Anlık Toplu Market Taraması Başlatıldı...*\nTüm coinler (16+) ve zaman dilimleri (5m-4h) taranıyor.', { parse_mode: 'Markdown' });
+                try {
+                    const scanner = require('./scanner');
+                    await scanner.scanAll();
+                    ctx.reply('✅ Toplu tarama tamamlandı. Bulunan sinyaller yukarıda listelendi.');
+                } catch (error) {
+                    ctx.reply(`❌ *Sistem Hatası:* ${error.message}`, { parse_mode: 'Markdown' });
+                }
+                return;
             }
 
             const ticker = args[1].toUpperCase();
@@ -94,7 +116,7 @@ class TelegramManager {
         helpMessage += `• /status - Botun çalışma durumunu gösterir.\n`;
         helpMessage += `• /help - Bu yardım mesajını gösterir.\n\n`;
         helpMessage += `*Zaman Dilimleri:* 5m, 15m, 30m, 1h, 4h\n\n`;
-        helpMessage += `_Not: Bot her 5 dakikada bir otomatik tarama yapmaya devam eder._`;
+        helpMessage += `_Not: Bot 7/24 sürekli tarama modundadır, sinyal buldukça otomatik atar._`;
 
         ctx.reply(helpMessage, { parse_mode: 'Markdown' });
     }

@@ -27,9 +27,10 @@ async function main() {
     }
     logger.info(`📡 Telegram Bot Token: ${token.substring(0, 10)}... loaded.`);
 
-    // Start scanning loop
-    const scanInterval = parseInt(process.env.SCAN_INTERVAL) || 300000; // 5 mins default
-    scanner.start(scanInterval);
+    // Start scanning loop (Continuous)
+    scanner.start();
+
+    const scanInterval = parseInt(process.env.SCAN_INTERVAL) || 300000; 
 
     logger.info(`✅ Bot aktif! Tarama aralığı: ${scanInterval / 1000} saniye.`);
     
