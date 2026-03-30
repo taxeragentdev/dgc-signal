@@ -3,10 +3,12 @@ const confluence = require('./analysis/confluence');
 const telegram = require('./telegram');
 const coins = require('../config/coins');
 const winston = require('winston');
+const { getScanTimeframes, getPairDelayMs } = require('./scanConfig');
 
 class MarketScanner {
     constructor() {
-        this.timeframes = ['5m', '15m', '30m', '1h', '4h'];
+        this.timeframes = getScanTimeframes();
+        this.pairDelayMs = getPairDelayMs();
         this.lastSignals = {};
         this._scanChain = Promise.resolve();
         this.logger = winston.createLogger({
@@ -18,7 +20,8 @@ class MarketScanner {
 
     getLoopIntervalMs() {
         const n = parseInt(process.env.SCAN_INTERVAL, 10);
-        return Number.isFinite(n) && n > 0 ? n : 300000;
+        /** Varsayılan 120s — tam tur daha sık tekrar */
+        return Number.isFinite(n) && n > 0 ? n : 120000;
     }
 
     async scanAll(tfs = this.timeframes) {
@@ -43,7 +46,7 @@ class MarketScanner {
                 } catch (error) {
                     this.logger.error(`Scan error (${symbol} - ${tf}): ${error.message}`);
                 }
-                await new Promise(resolve => setTimeout(resolve, 200));
+                await new Promise(resolve => setTimeout(resolve, this.pairDelayMs));
             }
         }
 

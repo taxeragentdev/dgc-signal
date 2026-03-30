@@ -30,8 +30,10 @@ async function main() {
     await telegram.launch();
     logger.info('✅ Telegram polling hazır.');
 
-    const intervalMs = parseInt(process.env.SCAN_INTERVAL, 10) || 300000;
-    logger.info(`📊 Sürekli tarama: tur sonrası bekleme ${intervalMs / 1000}s (SCAN_INTERVAL).`);
+    const { getScanTimeframes } = require('./scanConfig');
+    logger.info(`📊 Tarama TF: ${getScanTimeframes().join(', ')} (SCAN_TIMEFRAMES)`);
+    const intervalMs = parseInt(process.env.SCAN_INTERVAL, 10) || 120000;
+    logger.info(`📊 Tur aralığı: ${intervalMs / 1000}s (SCAN_INTERVAL, varsayılan 120).`);
 
     scanner.start().catch((err) => {
         logger.error(`❌ Tarama döngüsü: ${err.message}`);

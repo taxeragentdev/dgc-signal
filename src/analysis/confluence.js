@@ -3,11 +3,11 @@ const indicators = require('./indicators');
 const smc = require('./smartMoney');
 
 class ConfluenceManager {
-    /** .env: SIGNAL_THRESHOLD (varsayılan 55, tipik 45–65) */
+    /** .env: SIGNAL_THRESHOLD (varsayılan 50, tipik 45–65) */
     getThreshold() {
         const n = parseInt(process.env.SIGNAL_THRESHOLD, 10);
         if (Number.isFinite(n) && n >= 35 && n <= 95) return n;
-        return 55;
+        return 50;
     }
 
     /**
