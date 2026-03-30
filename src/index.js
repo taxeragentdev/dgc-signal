@@ -34,8 +34,23 @@ async function main() {
     logger.info(`✅ Bot aktif! Tarama aralığı: ${scanInterval / 1000} saniye.`);
     
     // Initial message to user if possible
-    // Note: User must send /start to the bot first to get notifications.
     logger.info('💡 Lütfen Telegram botuna gidip /start komutunu verin.');
+
+    // Handle termination signals
+    const shutdown = async (signal) => {
+        logger.info(`🛑 ${signal} alındı. Bot kapatılıyor...`);
+        try {
+            await telegram.bot.stop(signal);
+            logger.info('✅ Telegram bağlantısı kesildi.');
+            process.exit(0);
+        } catch (err) {
+            logger.error(`❌ Kapatma hatası: ${err.message}`);
+            process.exit(1);
+        }
+    };
+
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
 main().catch(err => {

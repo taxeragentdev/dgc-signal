@@ -31,11 +31,12 @@ class ExchangeManager {
      */
     async fetchOHLCV(symbol, timeframe = '1h', limit = 100) {
         try {
-            // Hyperliquid symbols in CCXT are typically 'BTC/USDC:USDC' or similar
-            // We'll normalize input if needed, but let's assume standard CCXT format for now
             const ohlcv = await this.exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
             
-            // Map to a more readable format
+            if (!ohlcv || ohlcv.length === 0) {
+                throw new Error(`Borsadan veri alınamadı (Boş veri)`);
+            }
+
             return ohlcv.map(candle => ({
                 timestamp: candle[0],
                 open: candle[1],
@@ -45,8 +46,9 @@ class ExchangeManager {
                 volume: candle[5]
             }));
         } catch (error) {
-            this.logger.error(`Error fetching OHLCV for ${symbol}: ${error.message}`);
-            return [];
+            const msg = `Hyperliquid Hatası (${symbol} - ${timeframe}): ${error.message}`;
+            this.logger.error(msg);
+            throw new Error(msg); // Throw so the scanner can catch and report
         }
     }
 

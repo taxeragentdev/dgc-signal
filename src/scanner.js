@@ -17,36 +17,57 @@ class MarketScanner {
 
     /**
      * Scans all symbols and timeframes.
+     * @param {Array} tfs - Specific timeframes to scan (default: all)
      */
-    async scanAll() {
+    async scanAll(tfs = this.timeframes) {
         this.logger.info(`Starting market scan for ${coins.length} symbols...`);
 
         for (const symbol of coins) {
-            for (const tf of this.timeframes) {
+            for (const tf of tfs) {
                 try {
-                    const candles = await exchange.fetchOHLCV(symbol, tf, 200);
-                    if (!candles || candles.length < 200) continue;
-
-                    const signal = confluence.analyze(candles);
-
-                    if (signal) {
-                        const lastCandleTime = candles[candles.length - 1].timestamp;
-                        const signalKey = `${symbol}_${tf}_${signal.type}_${lastCandleTime}`;
-
-                        // Prevent duplicate signal for the same candle
-                        if (!this.lastSignals[signalKey]) {
-                            this.lastSignals[signalKey] = true;
-                            this.logger.info(`🚨 SIGNAL FOUND: ${symbol} ${tf} ${signal.type}`);
-                            await telegram.sendSignal(symbol, tf, signal);
-                        }
-                    }
+                    await this.scanSymbol(symbol, tf);
                 } catch (error) {
-                    this.logger.error(`Error scanning ${symbol} on ${tf}: ${error.message}`);
+                    // Already logged in scanSymbol, just continue
                 }
-                
-                // Small delay to avoid rate limits
                 await new Promise(resolve => setTimeout(resolve, 200));
             }
+        }
+    }
+
+    /**
+     * Scans a single symbol and timeframe.
+     * @param {string} symbol 
+     * @param {string} timeframe 
+     * @param {boolean} isManual - If true, returns the signal object directly
+     */
+    async scanSymbol(symbol, timeframe, isManual = false) {
+        try {
+            const candles = await exchange.fetchOHLCV(symbol, timeframe, 200);
+            if (!candles || candles.length < 200) {
+                if (isManual) throw new Error(`${symbol} için yeterli veri (200 mum) bulunamadı.`);
+                return null;
+            }
+
+            const signal = confluence.analyze(candles);
+
+            if (signal) {
+                const lastCandleTime = candles[candles.length - 1].timestamp;
+                const signalKey = `${symbol}_${timeframe}_${signal.type}_${lastCandleTime}`;
+
+                if (isManual || !this.lastSignals[signalKey]) {
+                    if (!isManual) {
+                        this.lastSignals[signalKey] = true;
+                        this.logger.info(`🚨 SIGNAL FOUND: ${symbol} ${timeframe} ${signal.type}`);
+                        await telegram.sendSignal(symbol, timeframe, signal);
+                    }
+                    return signal;
+                }
+            }
+            return null;
+        } catch (error) {
+            this.logger.error(`Scan error (${symbol} - ${timeframe}): ${error.message}`);
+            if (isManual) throw error;
+            return null;
         }
     }
 

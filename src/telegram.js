@@ -18,7 +18,7 @@ class TelegramManager {
             }
 
             this.chatId = ctx.chat.id;
-            ctx.reply(`🔮 Kripto Sinyal Botu Aktif!\n\nSenin Chat ID: ${ctx.chat.id}\n\nEğer bu ID'yi .env dosyasındaki TELEGRAM_CHAT_ID kısmına yazarsan botu sadece sen kullanabilirsin.\n\n/scan - Anlık tarama yap\n/status - Bot durumunu kontrol et`);
+            this.sendHelp(ctx);
         });
 
         this.bot.on('message', async (ctx, next) => {
@@ -28,11 +28,75 @@ class TelegramManager {
             await next();
         });
 
+        this.bot.command('help', (ctx) => this.sendHelp(ctx));
+
         this.bot.command('status', (ctx) => {
-            ctx.reply('✅ Bot çalışıyor ve Hyperliquid üzerinden veri tarıyor.');
+            ctx.reply('✅ Bot aktif ve Hyperliquid üzerinden veri tarıyor.\n\nSon tarama durumu: Stabil');
+        });
+
+        this.bot.command('list', (ctx) => {
+            const coins = require('../config/coins');
+            ctx.reply(`📊 *Taranan Coinler (Total: ${coins.length})*\n\n\`${coins.join(', ')}\``, { parse_mode: 'Markdown' });
+        });
+
+        this.bot.command('scan', async (ctx) => {
+            const args = ctx.message.text.split(' ');
+            if (args.length < 2) {
+                return ctx.reply('❓ Kullanım: `/scan BTC` veya `/scan BTC 15m`', { parse_mode: 'Markdown' });
+            }
+
+            const ticker = args[1].toUpperCase();
+            const timeframe = args[2] || '1h';
+            const symbol = `${ticker}/USDC:USDC`;
+
+            ctx.reply(`🔍 *${symbol}* için *${timeframe}* analiz başlatıldı...`, { parse_mode: 'Markdown' });
+
+            try {
+                const scanner = require('./scanner');
+                const signal = await scanner.scanSymbol(symbol, timeframe, true);
+
+                if (signal) {
+                    await this.sendSignal(symbol, timeframe, signal);
+                } else {
+                    ctx.reply(`ℹ️ *${ticker}* (${timeframe}) için şu an net bir sinyal oluşmadı.\nSkor: Belirsiz`, { parse_mode: 'Markdown' });
+                }
+            } catch (error) {
+                ctx.reply(`❌ *Hata:* ${error.message}`, { parse_mode: 'Markdown' });
+            }
+        });
+
+        this.bot.command('scalp', async (ctx) => {
+            ctx.reply('⚡ *Scalp Modu Başlatıldı!* (5m ve 15m taraması yapılıyor...)', { parse_mode: 'Markdown' });
+            try {
+                const scanner = require('./scanner');
+                await scanner.scanAll(['5m', '15m']);
+                ctx.reply('✅ Scalp taraması tamamlandı. Sinyal bulunursa yukarıda görünecektir.');
+            } catch (error) {
+                ctx.reply(`❌ *Hata:* ${error.message}`, { parse_mode: 'Markdown' });
+            }
+        });
+
+        this.bot.catch((err, ctx) => {
+            console.error(`Telegraf error for ${ctx.updateType}`, err);
+            ctx.reply(`❌ Beklenmedik bir hata oluştu: ${err.message}`);
         });
 
         this.bot.launch();
+    }
+
+    sendHelp(ctx) {
+        let helpMessage = `🔮 *Kripto Sinyal Botu — Kullanım Kılavuzu*\n\n`;
+        helpMessage += `Bu bot, Hyperliquid borsasındaki coinleri SMC (Smart Money Concepts) ve teknik indikatörlerle analiz eder.\n\n`;
+        helpMessage += `*Komutlar:*\n`;
+        helpMessage += `• /scan [COIN] [TF] - Belirli bir coini analiz eder. (Örn: \`/scan BTC 15m\`)\n`;
+        helpMessage += `• /scalp - Tüm marketi 5m ve 15m TF'lerde hızlıca tarar.\n`;
+        helpMessage += `• /list - Taranan tüm coinleri listeler.\n`;
+        helpMessage += `• /status - Botun çalışma durumunu gösterir.\n`;
+        helpMessage += `• /help - Bu yardım mesajını gösterir.\n\n`;
+        helpMessage += `*Zaman Dilimleri:* 5m, 15m, 30m, 1h, 4h\n\n`;
+        helpMessage += `_Not: Bot her 5 dakikada bir otomatik tarama yapmaya devam eder._`;
+
+        ctx.reply(helpMessage, { parse_mode: 'Markdown' });
     }
 
     /**
