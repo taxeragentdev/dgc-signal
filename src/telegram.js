@@ -73,14 +73,30 @@ class TelegramManager {
 
         this.bot.command('status', (ctx) => {
             const { getScanTimeframes } = require('./scanConfig');
-            const th = process.env.SIGNAL_THRESHOLD || '50';
+            const { getScanCoins } = require('../config/coins');
+            const confluence = require('./analysis/confluence');
+            const scanner = require('./scanner');
+            const th = String(confluence.getThreshold());
             const tfs = getScanTimeframes().join(', ');
             const intervalSec = (parseInt(process.env.SCAN_INTERVAL, 10) || 30000) / 1000;
+            const st = scanner.getLastRoundStats();
+            const busy = scanner.isScanInProgress() ? 'evet (API)' : 'hayır';
+            const lastTur =
+                st.roundIndex > 0
+                    ? `#${st.roundIndex} · ${st.pairs} adım · ${st.signals} sinyal · ${Math.round((st.durationMs || 0) / 1000)}s`
+                    : 'henüz yok (deploy sonrası ilk tur bekleniyor)';
+            const ago =
+                st.finishedAt > 0
+                    ? `· son tur ~${Math.round((Date.now() - st.finishedAt) / 60000)} dk önce`
+                    : '';
             ctx.reply(
                 `✅ Bot çalışıyor (Hyperliquid)\n` +
-                `📐 Eşik: ±${th} (SIGNAL_THRESHOLD)\n` +
-                `⏱ TF: ${tfs}\n` +
-                `🔁 Tur aralığı: ${intervalSec}s (SCAN_INTERVAL)\n\n` +
+                `📐 Eşik: ±${th} (aktif · env: SIGNAL_THRESHOLD)\n` +
+                `🪙 Coin: ${getScanCoins().length} · TF: ${tfs}\n` +
+                `🔁 Tur aralığı: ${intervalSec}s (SCAN_INTERVAL)\n` +
+                `🔄 Arka plan tarama: sürekli · şu an tarıyor: ${busy}\n` +
+                `📡 Son tamamlanan tur: ${lastTur} ${ago}\n\n` +
+                `Sinyal yoksa Telegram sessiz kalır; tur yine de işlenir.\n\n` +
                 `AUTO_TRADE: ${process.env.AUTO_TRADE_ENABLED === 'true' ? 'açık' : 'kapalı'}\n` +
                 `/autotrade list — ajan durumu`,
                 { parse_mode: undefined }
@@ -290,7 +306,8 @@ class TelegramManager {
                     agoMin != null ? `${agoMin} dk önce` : 'henüz tam tur yok';
                 const msg =
                     `📊 Durum — arka plan tarama çalışıyor (sinyal olsun/olmasın).\n` +
-                    `Son tur: ${st.pairs} adım (coin×TF), ${st.signals} yeni sinyal (${agoStr}).`;
+                    `Tur ${st.roundIndex > 0 ? `#${st.roundIndex} · ` : ''}` +
+                    `${st.pairs} adım (coin×TF), ${st.signals} yeni sinyal (${agoStr}).`;
                 this.sendMessage(msg);
             } catch (e) {
                 console.error('[heartbeat]', e.message);
@@ -299,7 +316,8 @@ class TelegramManager {
     }
 
     sendHelp(ctx) {
-        const th = process.env.SIGNAL_THRESHOLD || '50';
+        const confluence = require('./analysis/confluence');
+        const th = String(confluence.getThreshold());
         const helpMessage =
             `Kripto Sinyal Botu (Hyperliquid)\n\n` +
             `• /scan — SCAN_COINS listesini tarar\n` +
@@ -311,7 +329,8 @@ class TelegramManager {
             `• /autotrade list | on <alias> | off <alias> — ajan oto-trade\n` +
             `• /testtrade [alias] — Degen test (TEST_TRADE_ENABLED=true)\n` +
             `• /help\n\n` +
-            `Sinyal eşiği: ±${th} (SIGNAL_THRESHOLD, varsayılan 50).\n` +
+            `Sinyal eşiği: ±${th} (SIGNAL_THRESHOLD, varsayılan 45).\n` +
+            `Arka plan sürekli tarar; sinyal yoksa mesaj atmaz — /status ile tur sayısına bakın.\n` +
             `Coin listesi: SCAN_COINS (virgülle, örn. BTC,ETH,SOL). Varsayılan 7 coin.\n` +
             `Tarama TF: SCAN_TIMEFRAMES (varsayılan 5m,15m,30m). Tur: SCAN_INTERVAL (varsayılan 30s), gecikme: SCAN_PAIR_DELAY_MS (varsayılan 0).\n` +
             `Durum özeti: STATUS_HEARTBEAT_MS=300000 (5 dk), kapat: 0.\n\n` +

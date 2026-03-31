@@ -57,7 +57,14 @@ async function main() {
         logger.error(`❌ Tarama döngüsü: ${err.message}`);
     });
 
-    logger.info('💡 Sinyal almak için botta /start veya herhangi bir komut kullanın (sohbet ID bağlanır).');
+    logger.info(
+        '💡 Arka plan tarama sürekli çalışır; sinyal yoksa Telegram sessiz kalır. /status ile son tur bilgisini görün.'
+    );
+    logger.info('💡 Sohbet ID: botta /start veya TELEGRAM_CHAT_ID (sinyal mesajı için).');
+
+    process.on('unhandledRejection', (reason) => {
+        logger.error(`unhandledRejection: ${reason}`);
+    });
 
     const shutdown = async (signal) => {
         logger.info(`🛑 ${signal} alındı. Bot kapatılıyor...`);

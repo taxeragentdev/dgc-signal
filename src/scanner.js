@@ -8,8 +8,17 @@ const { getScanTimeframes, getPairDelayMs } = require('./scanConfig');
 class MarketScanner {
     constructor() {
         this.lastSignals = {};
-        /** Son tamamlanan arka plan turu (heartbeat için) */
-        this.lastRoundStats = { pairs: 0, signals: 0, finishedAt: 0 };
+        /** Son tamamlanan arka plan turu (heartbeat /status için) */
+        this.lastRoundStats = {
+            pairs: 0,
+            signals: 0,
+            finishedAt: 0,
+            roundIndex: 0,
+            durationMs: 0
+        };
+        /** Tamamlanan arka plan turu sayısı (sürekli döngü kanıtı) */
+        this.roundCount = 0;
+        this.scanInProgress = false;
         this._scanChain = Promise.resolve();
         this.logger = winston.createLogger({
             level: 'info',
@@ -28,6 +37,10 @@ class MarketScanner {
         return this.lastRoundStats;
     }
 
+    isScanInProgress() {
+        return this.scanInProgress;
+    }
+
     async scanAll(tfs) {
         const run = () => this._runScanAll(tfs ?? getScanTimeframes());
         const p = this._scanChain.then(run, run);
@@ -36,28 +49,49 @@ class MarketScanner {
     }
 
     async _runScanAll(tfs) {
+        const t0 = Date.now();
+        this.scanInProgress = true;
         this.pairDelayMs = getPairDelayMs();
         const coins = getScanCoins();
         this.logger.info(`Starting market scan for ${coins.length} symbols...`);
+        console.log(
+            `[scanner] Tur başlıyor · ${coins.length} coin · ${tfs.length} TF · ~${coins.length * tfs.length} adım`
+        );
 
         let pairs = 0;
         let signals = 0;
 
-        for (const symbol of coins) {
-            for (const tf of tfs) {
-                pairs++;
-                try {
-                    const sig = await this.scanSymbol(symbol, tf, false);
-                    if (sig) signals++;
-                } catch (error) {
-                    this.logger.error(`Scan error (${symbol} - ${tf}): ${error.message}`);
+        try {
+            for (const symbol of coins) {
+                for (const tf of tfs) {
+                    pairs++;
+                    try {
+                        const sig = await this.scanSymbol(symbol, tf, false);
+                        if (sig) signals++;
+                    } catch (error) {
+                        this.logger.error(`Scan error (${symbol} - ${tf}): ${error.message}`);
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, this.pairDelayMs));
                 }
-                await new Promise(resolve => setTimeout(resolve, this.pairDelayMs));
             }
+        } finally {
+            this.scanInProgress = false;
         }
 
+        const durationMs = Date.now() - t0;
+        this.roundCount += 1;
         this.logger.info(`Scan round finished: pairs=${pairs}, newSignals=${signals}`);
-        this.lastRoundStats = { pairs, signals, finishedAt: Date.now() };
+        console.log(
+            `[scanner] Tur #${this.roundCount} bitti · ${pairs} adım · ${signals} yeni sinyal · ${(durationMs / 1000).toFixed(1)}s`
+        );
+
+        this.lastRoundStats = {
+            pairs,
+            signals,
+            finishedAt: Date.now(),
+            roundIndex: this.roundCount,
+            durationMs
+        };
         return { pairs, signals };
     }
 
@@ -120,6 +154,9 @@ class MarketScanner {
     }
 
     async start() {
+        console.log(
+            `[scanner] Sürekli arka plan tarama döngüsü başladı (SCAN_INTERVAL ${this.getLoopIntervalMs() / 1000}s)`
+        );
         this.logger.info(
             `📡 Sürekli tarama: tur bitince SCAN_INTERVAL bekleyip tekrar (varsayılan ${this.getLoopIntervalMs() / 1000}s).`
         );
