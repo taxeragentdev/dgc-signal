@@ -1,16 +1,20 @@
 const TI = require('technicalindicators');
 
+function last(arr) {
+    return Array.isArray(arr) && arr.length ? arr[arr.length - 1] : undefined;
+}
+
 class IndicatorCalculator {
     constructor() {}
 
     /**
      * Calculates indicators for a given set of candles.
-     * @param {Array} candles - Array of [O,H,L,C,V] objects
+     * @param {Array} candles - Array of { open, high, low, close, ... }
      */
     calculate(candles) {
-        const prices = candles.map(c => c.close);
-        const highs = candles.map(c => c.high);
-        const lows = candles.map(c => c.low);
+        const prices = candles.map((c) => c.close);
+        const highs = candles.map((c) => c.high);
+        const lows = candles.map((c) => c.low);
 
         const rsi = TI.RSI.calculate({ values: prices, period: 14 });
         const macd = TI.MACD.calculate({
@@ -29,14 +33,14 @@ class IndicatorCalculator {
         const atr = TI.ATR.calculate({ high: highs, low: lows, close: prices, period: 14 });
 
         return {
-            rsi: rsi[rsi.length - 1],
-            macd: macd[macd.length - 1],
-            ema20: ema20[ema20.length - 1],
-            ema50: ema50[ema50.length - 1],
-            ema200: ema200[ema200.length - 1],
-            bb: bb[bb.length - 1],
-            adx: adx[adx.length - 1],
-            atr: atr[atr.length - 1],
+            rsi: last(rsi),
+            macd: last(macd),
+            ema20: last(ema20),
+            ema50: last(ema50),
+            ema200: last(ema200),
+            bb: last(bb),
+            adx: last(adx),
+            atr: last(atr),
             currentPrice: prices[prices.length - 1]
         };
     }

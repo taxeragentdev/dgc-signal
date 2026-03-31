@@ -333,7 +333,7 @@ class TelegramManager {
             `• /autotrade list | on <alias> | off <alias> — ajan oto-trade\n` +
             `• /testtrade [alias] — Degen test (TEST_TRADE_ENABLED=true)\n` +
             `• /help\n\n` +
-            `Sinyal eşiği: ±${th} (SIGNAL_THRESHOLD, varsayılan 45).\n` +
+            `Sinyal eşiği: ±${th} (SIGNAL_THRESHOLD, varsayılan 36). RSI güvenlik: SIGNAL_RSI_FILTER, SIGNAL_RSI_BLOCK_LONG/SHORT.\n` +
             `Arka plan sürekli tarar; sinyal yoksa mesaj atmaz — /status ile tur sayısına bakın.\n` +
             `Coin listesi: SCAN_COINS (virgülle, örn. BTC,ETH,SOL). Varsayılan 7 coin.\n` +
             `Arka plan TF: varsayılan scalp 5m+15m (SCAN_MODE=scalp). Geniş: SCAN_MODE=full veya SCAN_TIMEFRAMES=...\n` +
