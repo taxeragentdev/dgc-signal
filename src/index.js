@@ -34,7 +34,10 @@ async function main() {
     const { getScanCoins } = require('../config/coins');
     const scanCoins = getScanCoins();
     logger.info(`📊 Taranan coinler (${scanCoins.length}): ${scanCoins.join(', ')} (SCAN_COINS)`);
-    logger.info(`📊 Tarama TF: ${getScanTimeframes().join(', ')} (SCAN_TIMEFRAMES)`);
+    const scanTfs = getScanTimeframes();
+    logger.info(
+        `📊 Arka plan TF: ${scanTfs.join(', ')} (SCAN_MODE=${process.env.SCAN_MODE || 'scalp'}, SCAN_TIMEFRAMES ile override)`
+    );
     const intervalMs = parseInt(process.env.SCAN_INTERVAL, 10) || 30000;
     logger.info(`📊 Tur aralığı: ${intervalMs / 1000}s (SCAN_INTERVAL, varsayılan 30).`);
 

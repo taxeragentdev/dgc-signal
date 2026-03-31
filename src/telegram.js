@@ -78,6 +78,9 @@ class TelegramManager {
             const scanner = require('./scanner');
             const th = String(confluence.getThreshold());
             const tfs = getScanTimeframes().join(', ');
+            const tfKaynak = process.env.SCAN_TIMEFRAMES?.trim()
+                ? 'SCAN_TIMEFRAMES'
+                : `SCAN_MODE=${(process.env.SCAN_MODE || 'scalp').trim()}`;
             const intervalSec = (parseInt(process.env.SCAN_INTERVAL, 10) || 30000) / 1000;
             const st = scanner.getLastRoundStats();
             const busy = scanner.isScanInProgress() ? 'evet (API)' : 'hayır';
@@ -92,7 +95,7 @@ class TelegramManager {
             ctx.reply(
                 `✅ Bot çalışıyor (Hyperliquid)\n` +
                 `📐 Eşik: ±${th} (aktif · env: SIGNAL_THRESHOLD)\n` +
-                `🪙 Coin: ${getScanCoins().length} · TF: ${tfs}\n` +
+                `🪙 Coin: ${getScanCoins().length} · TF: ${tfs} (${tfKaynak})\n` +
                 `🔁 Tur aralığı: ${intervalSec}s (SCAN_INTERVAL)\n` +
                 `🔄 Arka plan tarama: sürekli · şu an tarıyor: ${busy}\n` +
                 `📡 Son tamamlanan tur: ${lastTur} ${ago}\n\n` +
@@ -131,7 +134,7 @@ class TelegramManager {
                 const coinList = getScanCoins();
                 const tfs = getScanTimeframes();
                 ctx.reply(
-                    `Toplu tarama başladı (${coinList.length} coin × ${tfs.length} TF = ${coinList.length * tfs.length} adım). Bitince özet gelecek.`
+                    `Toplu tarama başladı (${coinList.length} coin × ${tfs.length} TF = ${coinList.length * tfs.length} adım; arka planla aynı TF). Bitince özet gelecek.`
                 );
                 try {
                     const scanner = require('./scanner');
@@ -180,7 +183,8 @@ class TelegramManager {
 
         this.bot.command('scalp', async (ctx) => {
             const { getScanCoins } = require('../config/coins');
-            const scalpTfs = ['5m', '15m'];
+            const { getScalpTimeframes } = require('./scanConfig');
+            const scalpTfs = getScalpTimeframes();
             const nCoins = getScanCoins().length;
             ctx.reply(
                 `Scalp: ${scalpTfs.join(' + ')} (${nCoins} coin × ${scalpTfs.length} TF = ${nCoins * scalpTfs.length} adım)...`
@@ -322,7 +326,7 @@ class TelegramManager {
             `Kripto Sinyal Botu (Hyperliquid)\n\n` +
             `• /scan — SCAN_COINS listesini tarar\n` +
             `• /scan COIN [TF] — Tek coin analizi\n` +
-            `• /scalp — 5m + 15m hızlı tarama\n` +
+            `• /scalp — 5m+15m tek tur (arka plan zaten aynı TF ile sürekli; SCAN_MODE)\n` +
             `• /list — Coin listesi\n` +
             `• /status — Özet\n` +
             `• /check — Borsa + sohbet\n` +
@@ -332,7 +336,8 @@ class TelegramManager {
             `Sinyal eşiği: ±${th} (SIGNAL_THRESHOLD, varsayılan 45).\n` +
             `Arka plan sürekli tarar; sinyal yoksa mesaj atmaz — /status ile tur sayısına bakın.\n` +
             `Coin listesi: SCAN_COINS (virgülle, örn. BTC,ETH,SOL). Varsayılan 7 coin.\n` +
-            `Tarama TF: SCAN_TIMEFRAMES (varsayılan 5m,15m,30m). Tur: SCAN_INTERVAL (varsayılan 30s), gecikme: SCAN_PAIR_DELAY_MS (varsayılan 0).\n` +
+            `Arka plan TF: varsayılan scalp 5m+15m (SCAN_MODE=scalp). Geniş: SCAN_MODE=full veya SCAN_TIMEFRAMES=...\n` +
+            `Tur: SCAN_INTERVAL (varsayılan 30s), gecikme: SCAN_PAIR_DELAY_MS (varsayılan 0).\n` +
             `Durum özeti: STATUS_HEARTBEAT_MS=300000 (5 dk), kapat: 0.\n\n` +
             `Railway: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, Replicas=1. Oto-trade: AUTO_TRADE_ENABLED, AGENTS_JSON.\n` +
             `Test: TEST_TRADE_ENABLED=true, isteğe TEST_TRADE_SYMBOL, TEST_TRADE_PCT (SL/TP mesafesi, varsayılan 0.01=%1).\n` +
