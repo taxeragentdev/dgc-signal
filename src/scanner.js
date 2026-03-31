@@ -120,10 +120,16 @@ class MarketScanner {
                 return null;
             }
 
-            const ev = confluence.evaluate(candles);
+            const ev = confluence.evaluate(candles, timeframe);
             const signal = ev.signal;
 
             if (!signal) {
+                if (process.env.SCAN_DEBUG === 'true') {
+                    this.logger.info(
+                        `[scanner-debug] ${symbol} ${timeframe} rawScore=${ev.rawScore.toFixed(1)} threshold=${ev.threshold} ` +
+                        `RSI=${ev.rsi != null ? ev.rsi.toFixed(1) : '—'} trend=${ev.trend || '—'} blockedByRsi=${ev.blockedByRsi} reason=${ev.reason || 'none'}`
+                    );
+                }
                 if (isManual) return { manual: true, evaluation: ev };
                 return null;
             }

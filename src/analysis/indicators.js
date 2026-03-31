@@ -4,6 +4,10 @@ function last(arr) {
     return Array.isArray(arr) && arr.length ? arr[arr.length - 1] : undefined;
 }
 
+function prev(arr) {
+    return Array.isArray(arr) && arr.length > 1 ? arr[arr.length - 2] : undefined;
+}
+
 class IndicatorCalculator {
     constructor() {}
 
@@ -34,10 +38,15 @@ class IndicatorCalculator {
 
         return {
             rsi: last(rsi),
+            rsiPrev: prev(rsi),
             macd: last(macd),
+            macdPrev: prev(macd),
             ema20: last(ema20),
+            ema20Prev: prev(ema20),
             ema50: last(ema50),
+            ema50Prev: prev(ema50),
             ema200: last(ema200),
+            ema200Prev: prev(ema200),
             bb: last(bb),
             adx: last(adx),
             atr: last(atr),

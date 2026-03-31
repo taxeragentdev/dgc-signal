@@ -13,9 +13,12 @@ async function dispatchTradeSignal(payload) {
     const webhook = process.env.AUTO_TRADE_WEBHOOK_URL;
     if (webhook && webhook.startsWith('http')) {
         try {
+            const headers = { 'Content-Type': 'application/json' };
+            const whSecret = process.env.SIGNAL_WEBHOOK_SECRET?.trim();
+            if (whSecret) headers['x-signal-secret'] = whSecret;
             const res = await fetch(webhook, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify(payload)
             });
             if (!res.ok) {

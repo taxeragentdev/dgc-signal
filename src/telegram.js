@@ -327,6 +327,7 @@ class TelegramManager {
             `• /scan — SCAN_COINS listesini tarar\n` +
             `• /scan COIN [TF] — Tek coin analizi\n` +
             `• /scalp — 5m+15m tek tur (arka plan zaten aynı TF ile sürekli; SCAN_MODE)\n` +
+            `• /scan 5m,15m,30m,1h için SCAN_MODE=full ya da SCAN_TIMEFRAMES=5m,15m,30m,1h\n` +
             `• /list — Coin listesi\n` +
             `• /status — Özet\n` +
             `• /check — Borsa + sohbet\n` +

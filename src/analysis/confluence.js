@@ -5,12 +5,44 @@ const smc = require('./smartMoney');
 class ConfluenceManager {
     /**
      * .env SIGNAL_THRESHOLD — varsayılan 36 (daha önce 45–50 çok seyrek sinyal üretiyordu).
-     * İzinli aralık 28–95.
+     * İzinli aralık 18–95.
+     * Eğer env yoksa SCAN_MODE / timeframe bazlı daha scalp uyumlu değer seçilir.
      */
-    getThreshold() {
+    getThreshold(timeframe = undefined) {
         const n = parseInt(process.env.SIGNAL_THRESHOLD, 10);
-        if (Number.isFinite(n) && n >= 28 && n <= 95) return n;
+        if (Number.isFinite(n) && n >= 18 && n <= 95) return n;
+
+        if (timeframe) {
+            const tf = String(timeframe).trim().toLowerCase();
+            if (tf === '5m' || tf === '15m') return 28;
+            if (tf === '30m' || tf === '1h') return 34;
+        }
+
+        const mode = (process.env.SCAN_MODE || '').trim().toLowerCase();
+        if (mode === 'scalp') return 28;
+        if (mode === 'full') return 34;
+
         return 36;
+    }
+
+    /**
+     * EMA cross skoru ve hizalanma (scalp momentum için).
+     */
+    scoreFromEmaCross(ind) {
+        if (!ind || !Number.isFinite(ind.ema20) || !Number.isFinite(ind.ema50)) return 0;
+        let s = 0;
+
+        if (Number.isFinite(ind.ema20Prev) && Number.isFinite(ind.ema50Prev)) {
+            if (ind.ema20Prev <= ind.ema50Prev && ind.ema20 > ind.ema50) s += 18;
+            if (ind.ema20Prev >= ind.ema50Prev && ind.ema20 < ind.ema50) s -= 18;
+        }
+
+        if (Number.isFinite(ind.ema50) && Number.isFinite(ind.ema200)) {
+            if (ind.ema20 > ind.ema50 && ind.ema50 > ind.ema200) s += 10;
+            if (ind.ema20 < ind.ema50 && ind.ema50 < ind.ema200) s -= 10;
+        }
+
+        return s;
     }
 
     /** LONG iptal eşiği: RSI bu değerin üstündeyse (varsayılan 80) */
@@ -105,8 +137,8 @@ class ConfluenceManager {
     /**
      * @param {Array} candles
      */
-    evaluate(candles) {
-        const threshold = this.getThreshold();
+    evaluate(candles, timeframe) {
+        const threshold = this.getThreshold(timeframe);
         if (!candles || candles.length < 200) {
             return {
                 signal: null,
@@ -149,6 +181,8 @@ class ConfluenceManager {
             if (price > indicatorData.ema20) score += 8;
             else score -= 8;
         }
+
+        score += this.scoreFromEmaCross(indicatorData);
 
         if (macd && Number.isFinite(macd.MACD) && Number.isFinite(macd.signal)) {
             if (macd.MACD > macd.signal) score += 14;
