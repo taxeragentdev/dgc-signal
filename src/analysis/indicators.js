@@ -13,12 +13,13 @@ class IndicatorCalculator {
 
     /**
      * Calculates indicators for a given set of candles.
-     * @param {Array} candles - Array of { open, high, low, close, ... }
+     * @param {Array} candles - Array of { open, high, low, close, volume, ... }
      */
     calculate(candles) {
         const prices = candles.map((c) => c.close);
         const highs = candles.map((c) => c.high);
         const lows = candles.map((c) => c.low);
+        const volumes = candles.map((c) => c.volume || 0);
 
         const rsi = TI.RSI.calculate({ values: prices, period: 14 });
         const macd = TI.MACD.calculate({
@@ -36,6 +37,16 @@ class IndicatorCalculator {
         const adx = TI.ADX.calculate({ high: highs, low: lows, close: prices, period: 14 });
         const atr = TI.ATR.calculate({ high: highs, low: lows, close: prices, period: 14 });
 
+        // Volume calculations
+        const avgVolume = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+        const currentVolume = volumes[volumes.length - 1] || 0;
+        const volumeRatio = avgVolume > 0 ? currentVolume / avgVolume : 1;
+
+        // Volatility (ATR as % of price)
+        const currentAtr = last(atr);
+        const currentPrice = prices[prices.length - 1];
+        const volatilityPct = currentPrice > 0 && currentAtr ? (currentAtr / currentPrice) * 100 : 0;
+
         return {
             rsi: last(rsi),
             rsiPrev: prev(rsi),
@@ -50,7 +61,11 @@ class IndicatorCalculator {
             bb: last(bb),
             adx: last(adx),
             atr: last(atr),
-            currentPrice: prices[prices.length - 1]
+            currentPrice: currentPrice,
+            volume: currentVolume,
+            avgVolume: avgVolume,
+            volumeRatio: volumeRatio,
+            volatilityPct: volatilityPct
         };
     }
 }

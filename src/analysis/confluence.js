@@ -1,12 +1,13 @@
 const structure = require('./structure');
 const indicators = require('./indicators');
 const smc = require('./smartMoney');
+const patterns = require('./patterns');
 
 class ConfluenceManager {
     /**
-     * .env SIGNAL_THRESHOLD — varsayılan 36 (daha önce 45–50 çok seyrek sinyal üretiyordu).
+     * .env SIGNAL_THRESHOLD — varsayılan 26 (scalp için agresif ama güvenli).
      * İzinli aralık 18–95.
-     * Eğer env yoksa SCAN_MODE / timeframe bazlı daha scalp uyumlu değer seçilir.
+     * Zaman dilimi bazında otomatik ayar.
      */
     getThreshold(timeframe = undefined) {
         const n = parseInt(process.env.SIGNAL_THRESHOLD, 10);
@@ -14,15 +15,108 @@ class ConfluenceManager {
 
         if (timeframe) {
             const tf = String(timeframe).trim().toLowerCase();
-            if (tf === '5m' || tf === '15m') return 28;
-            if (tf === '30m' || tf === '1h') return 34;
+            if (tf === '5m' || tf === '15m') return 26;
+            if (tf === '30m') return 30;
+            if (tf === '1h' || tf === '4h') return 34;
         }
 
         const mode = (process.env.SCAN_MODE || '').trim().toLowerCase();
-        if (mode === 'scalp') return 28;
-        if (mode === 'full') return 34;
+        if (mode === 'scalp') return 26;
+        if (mode === 'full') return 30;
 
-        return 36;
+        return 34;
+    }
+
+    /**
+     * Volume Confirmation Score
+     * High volume + strong close = momentum
+     */
+    scoreFromVolume(ind, candles) {
+        if (!ind || !Number.isFinite(ind.volumeRatio)) return 0;
+        
+        let score = 0;
+        const volRatio = ind.volumeRatio;
+
+        // Volume ratio > 1.5 = strong
+        if (volRatio > 1.5) {
+            const lastCandle = candles[candles.length - 1];
+            if (lastCandle.close > lastCandle.open) score += 8;
+            if (lastCandle.close < lastCandle.open) score -= 8;
+        }
+        // Volume ratio > 2.0 = very strong
+        if (volRatio > 2.0) {
+            const lastCandle = candles[candles.length - 1];
+            if (lastCandle.close > lastCandle.open) score += 6;
+            if (lastCandle.close < lastCandle.open) score -= 6;
+        }
+
+        return score;
+    }
+
+    /**
+     * Volatility Adjustment
+     * Low volatility = false signals; high volatility = valid moves
+     */
+    scoreFromVolatility(ind) {
+        if (!ind || !Number.isFinite(ind.volatilityPct)) return 0;
+
+        const vol = ind.volatilityPct;
+        
+        // Volatility too low (< 0.5%) = unreliable
+        if (vol < 0.5) return -4;
+        
+        // Volatility normal (0.5% - 2%) = OK
+        if (vol >= 0.5 && vol <= 2) return 0;
+        
+        // Volatility high (> 2%) = good for scalp
+        if (vol > 2 && vol <= 4) return 6;
+        
+        // Volatility very high (> 4%) = strong moves
+        if (vol > 4) return 10;
+
+        return 0;
+    }
+
+    /**
+     * Pattern Analysis Score
+     * Engulfing, Pin Bar, Strong Close
+     */
+    scoreFromPattern(candles) {
+        if (!candles || candles.length < 2) return 0;
+        
+        const pattern = patterns.analyze(candles);
+        if (!pattern) return 0;
+
+        let score = 0;
+
+        if (pattern.engulfingBullish) {
+            score += pattern.engulfingBullish.confidence === 'HIGH' ? 14 : 8;
+        }
+        if (pattern.engulfingBearish) {
+            score -= pattern.engulfingBearish.confidence === 'HIGH' ? 14 : 8;
+        }
+
+        if (pattern.pinBar) {
+            if (pattern.pinBar.type === 'HAMMER') {
+                score += pattern.pinBar.confidence === 'HIGH' ? 10 : 6;
+            } else if (pattern.pinBar.type === 'SHOOTING_STAR') {
+                score -= pattern.pinBar.confidence === 'HIGH' ? 10 : 6;
+            }
+        }
+
+        if (pattern.strongClose) {
+            if (pattern.strongClose.type === 'STRONG_BULLISH_CLOSE') {
+                score += pattern.strongClose.strength > 0.9 ? 8 : 4;
+            } else if (pattern.strongClose.type === 'STRONG_BEARISH_CLOSE') {
+                score -= pattern.strongClose.strength > 0.9 ? 8 : 4;
+            }
+        }
+
+        if (pattern.highVolume) {
+            score += Math.sign(score) > 0 ? 4 : score < 0 ? -4 : 0;
+        }
+
+        return score;
     }
 
     /**
@@ -45,18 +139,18 @@ class ConfluenceManager {
         return s;
     }
 
-    /** LONG iptal eşiği: RSI bu değerin üstündeyse (varsayılan 80) */
+    /** LONG iptal eşiği: RSI bu değerin üstündeyse */
     getRsiBlockLong() {
         const n = parseInt(process.env.SIGNAL_RSI_BLOCK_LONG, 10);
         if (Number.isFinite(n) && n >= 60 && n <= 100) return n;
-        return 80;
+        return 85;
     }
 
-    /** SHORT iptal eşiği: RSI bu değerin altındeyse (varsayılan 20) */
+    /** SHORT iptal eşiği: RSI bu değerin altındeyse */
     getRsiBlockShort() {
         const n = parseInt(process.env.SIGNAL_RSI_BLOCK_SHORT, 10);
         if (Number.isFinite(n) && n >= 0 && n <= 40) return n;
-        return 20;
+        return 15;
     }
 
     isRsiSafetyFilterEnabled() {
@@ -65,13 +159,12 @@ class ConfluenceManager {
     }
 
     /**
-     * RSI katkısı — uç değerlerde ±30 tek başına skoru bozuyordu; kademeli yapı.
-     * @param {number} rsi
+     * RSI katkısı — momentum ve overbought/oversold tespiti
      */
     scoreFromRsi(rsi) {
         if (!Number.isFinite(rsi)) return 0;
-        if (rsi >= 75) return -18;
-        if (rsi <= 25) return 18;
+        if (rsi >= 75) return -16;
+        if (rsi <= 25) return 16;
         if (rsi >= 62) return 10;
         if (rsi <= 38) return -10;
         if (rsi >= 55) return 6;
@@ -80,7 +173,7 @@ class ConfluenceManager {
     }
 
     /**
-     * Bollinger — banda göre aşırı alım / aşırı satım eğilimi (mevcut veriyi kullanır).
+     * Bollinger — banda göre momentum
      */
     scoreFromBollinger(price, bb) {
         if (!bb || !Number.isFinite(price)) return 0;
@@ -101,7 +194,7 @@ class ConfluenceManager {
     }
 
     /**
-     * ADX + yön — trend gücü (daha önce hiç kullanılmıyordu).
+     * ADX + yön — trend gücü
      */
     scoreFromAdx(adxRow, trend) {
         if (!adxRow || !Number.isFinite(adxRow.adx)) return 0;
@@ -119,7 +212,7 @@ class ConfluenceManager {
     }
 
     /**
-     * Son mum momentum (volatil günlerde yön yakalamak için).
+     * Son mum momentum
      */
     scoreFromLastCandle(candles) {
         if (!candles || candles.length < 2) return 0;
@@ -164,9 +257,11 @@ class ConfluenceManager {
 
         let score = 0;
 
+        // Base trend
         if (trend === 'BULLISH') score += 16;
         else if (trend === 'BEARISH') score -= 16;
 
+        // Price vs EMA
         if (Number.isFinite(price) && Number.isFinite(indicatorData.ema200)) {
             if (price > indicatorData.ema200) score += 8;
             else score -= 8;
@@ -182,26 +277,37 @@ class ConfluenceManager {
             else score -= 8;
         }
 
+        // EMA Cross
         score += this.scoreFromEmaCross(indicatorData);
 
+        // MACD
         if (macd && Number.isFinite(macd.MACD) && Number.isFinite(macd.signal)) {
             if (macd.MACD > macd.signal) score += 14;
             else score -= 14;
         }
 
+        // RSI
         score += this.scoreFromRsi(rsi);
+
+        // Bollinger
         score += this.scoreFromBollinger(price, indicatorData.bb);
+
+        // ADX
         score += this.scoreFromAdx(indicatorData.adx, trend);
+
+        // Last candle
         score += this.scoreFromLastCandle(candles);
 
-        if (Number.isFinite(indicatorData.atr) && price > 0) {
-            const volPct = (indicatorData.atr / price) * 100;
-            if (volPct > 2.5) {
-                if (score > 0) score += 4;
-                else if (score < 0) score -= 4;
-            }
-        }
+        // NEW: Volume Score
+        score += this.scoreFromVolume(indicatorData, candles);
 
+        // NEW: Volatility Score
+        score += this.scoreFromVolatility(indicatorData);
+
+        // NEW: Pattern Score
+        score += this.scoreFromPattern(candles);
+
+        // Smart Money
         if (sweep) {
             if (sweep.type === 'BULLISH') score += 18;
             if (sweep.type === 'BEARISH') score -= 18;

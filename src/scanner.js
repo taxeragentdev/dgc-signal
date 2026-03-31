@@ -167,12 +167,32 @@ class MarketScanner {
             `📡 Sürekli tarama: tur bitince SCAN_INTERVAL bekleyip tekrar (varsayılan ${this.getLoopIntervalMs() / 1000}s).`
         );
 
+        let consecutiveErrors = 0;
+        const maxConsecutiveErrors = 10;
+
         while (true) {
             try {
+                console.log(
+                    `\n[scanner] Tur ${this.roundCount + 1} başlıyor...`
+                );
                 await this.scanAll();
-                await new Promise((resolve) => setTimeout(resolve, this.getLoopIntervalMs()));
+                consecutiveErrors = 0;
+                
+                const waitMs = this.getLoopIntervalMs();
+                console.log(
+                    `[scanner] Tur bitti. ${(waitMs / 1000).toFixed(0)}s bekliyorum...`
+                );
+                await new Promise((resolve) => setTimeout(resolve, waitMs));
             } catch (error) {
-                this.logger.error(`Döngü hatası: ${error.message}`);
+                consecutiveErrors++;
+                this.logger.error(`Döngü hatası (${consecutiveErrors}/${maxConsecutiveErrors}): ${error.message}`);
+                console.error(`[scanner] ERROR: ${error.message}`);
+
+                if (consecutiveErrors >= maxConsecutiveErrors) {
+                    this.logger.error(`❌ ${maxConsecutiveErrors} ardışık hata. Bot durduruluyor.`);
+                    process.exit(1);
+                }
+
                 await new Promise(resolve => setTimeout(resolve, 5000));
             }
         }
