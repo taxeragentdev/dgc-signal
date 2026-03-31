@@ -8,6 +8,8 @@ const { getScanTimeframes, getPairDelayMs } = require('./scanConfig');
 class MarketScanner {
     constructor() {
         this.lastSignals = {};
+        /** Coin'e göre best signal cache (deduplication için) */
+        this.bestSignalPerCoin = {};
         /** Son tamamlanan arka plan turu (heartbeat /status için) */
         this.lastRoundStats = {
             pairs: 0,
@@ -60,6 +62,7 @@ class MarketScanner {
 
         let pairs = 0;
         let signals = 0;
+        this.bestSignalPerCoin = {}; // Reset her tur
 
         try {
             for (const symbol of coins) {
@@ -67,12 +70,24 @@ class MarketScanner {
                     pairs++;
                     try {
                         const sig = await this.scanSymbol(symbol, tf, false);
-                        if (sig) signals++;
+                        if (sig) {
+                            // Track best signal per coin (highest score)
+                            if (!this.bestSignalPerCoin[symbol] || sig.score > this.bestSignalPerCoin[symbol].score) {
+                                this.bestSignalPerCoin[symbol] = { ...sig, timeframe: tf };
+                            }
+                        }
                     } catch (error) {
                         this.logger.error(`Scan error (${symbol} - ${tf}): ${error.message}`);
                     }
                     await new Promise((resolve) => setTimeout(resolve, this.pairDelayMs));
                 }
+            }
+
+            // Gönder: her coin için sadece best TF signal
+            for (const [symbol, bestSig] of Object.entries(this.bestSignalPerCoin)) {
+                const sent = await telegram.sendSignal(symbol, bestSig.timeframe, bestSig);
+                if (sent) signals++;
+                else this.logger.error(`Sinyal Telegram'a iletilemedi (${symbol})`);
             }
         } finally {
             this.scanInProgress = false;

@@ -436,8 +436,11 @@ class TelegramManager {
             message += `SMC: OB (${escapeHtml(signal.smc.ob.type)})\n`;
         }
 
-        const jsonStr = JSON.stringify(payload);
-        message += `\n<code>${escapeHtml(jsonStr)}</code>`;
+        // Show JSON only in debug mode
+        if (process.env.SCAN_DEBUG === 'true') {
+            const jsonStr = JSON.stringify(payload);
+            message += `\n📋 <b>Debug Payload:</b>\n<code>${escapeHtml(jsonStr)}</code>`;
+        }
 
         const notify =
             process.env.AUTO_TRADE_NOTIFY === 'true'
@@ -481,8 +484,7 @@ class TelegramManager {
         }
 
         if (this.chatId) return telegramOk;
-        return true;
-    }
+        return true;    }
 
     async sendMessage(text) {
         if (!this.chatId) return;
