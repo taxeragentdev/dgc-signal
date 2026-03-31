@@ -7,8 +7,6 @@ const { getScanTimeframes, getPairDelayMs } = require('./scanConfig');
 
 class MarketScanner {
     constructor() {
-        this.timeframes = getScanTimeframes();
-        this.pairDelayMs = getPairDelayMs();
         this.lastSignals = {};
         /** Son tamamlanan arka plan turu (heartbeat için) */
         this.lastRoundStats = { pairs: 0, signals: 0, finishedAt: 0 };
@@ -22,22 +20,23 @@ class MarketScanner {
 
     getLoopIntervalMs() {
         const n = parseInt(process.env.SCAN_INTERVAL, 10);
-        /** Varsayılan 45s — tam tur bitince bekleme (env ile hızlandırılabilir) */
-        return Number.isFinite(n) && n > 0 ? n : 45000;
+        /** Varsayılan 30s — tam tur bitince bekleme (SCAN_INTERVAL ile ayarlanır) */
+        return Number.isFinite(n) && n > 0 ? n : 30000;
     }
 
     getLastRoundStats() {
         return this.lastRoundStats;
     }
 
-    async scanAll(tfs = this.timeframes) {
-        const run = () => this._runScanAll(tfs);
+    async scanAll(tfs) {
+        const run = () => this._runScanAll(tfs ?? getScanTimeframes());
         const p = this._scanChain.then(run, run);
         this._scanChain = p.catch(() => {});
         return p;
     }
 
     async _runScanAll(tfs) {
+        this.pairDelayMs = getPairDelayMs();
         const coins = getScanCoins();
         this.logger.info(`Starting market scan for ${coins.length} symbols...`);
 
@@ -121,13 +120,14 @@ class MarketScanner {
     }
 
     async start() {
-        const intervalMs = this.getLoopIntervalMs();
-        this.logger.info(`📡 Sürekli tarama: her tur bitince ${intervalMs / 1000}s bekleme, sonra tekrar.`);
+        this.logger.info(
+            `📡 Sürekli tarama: tur bitince SCAN_INTERVAL bekleyip tekrar (varsayılan ${this.getLoopIntervalMs() / 1000}s).`
+        );
 
         while (true) {
             try {
                 await this.scanAll();
-                await new Promise(resolve => setTimeout(resolve, intervalMs));
+                await new Promise((resolve) => setTimeout(resolve, this.getLoopIntervalMs()));
             } catch (error) {
                 this.logger.error(`Döngü hatası: ${error.message}`);
                 await new Promise(resolve => setTimeout(resolve, 5000));

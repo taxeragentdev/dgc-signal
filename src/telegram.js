@@ -75,7 +75,7 @@ class TelegramManager {
             const { getScanTimeframes } = require('./scanConfig');
             const th = process.env.SIGNAL_THRESHOLD || '50';
             const tfs = getScanTimeframes().join(', ');
-            const intervalSec = (parseInt(process.env.SCAN_INTERVAL, 10) || 45000) / 1000;
+            const intervalSec = (parseInt(process.env.SCAN_INTERVAL, 10) || 30000) / 1000;
             ctx.reply(
                 `✅ Bot çalışıyor (Hyperliquid)\n` +
                 `📐 Eşik: ±${th} (SIGNAL_THRESHOLD)\n` +
@@ -110,16 +110,24 @@ class TelegramManager {
             const args = ctx.message.text.split(' ');
 
             if (args.length === 1) {
+                const { getScanCoins } = require('../config/coins');
+                const { getScanTimeframes } = require('./scanConfig');
+                const coinList = getScanCoins();
+                const tfs = getScanTimeframes();
                 ctx.reply(
-                    'Toplu tarama başladı (SCAN_COINS, tüm zaman dilimleri). Birkaç dakika sürebilir; bitince özet gelecek.'
+                    `Toplu tarama başladı (${coinList.length} coin × ${tfs.length} TF = ${coinList.length * tfs.length} adım). Bitince özet gelecek.`
                 );
                 try {
                     const scanner = require('./scanner');
                     const stats = await scanner.scanAll();
+                    const head =
+                        `Tarama bitti.\n` +
+                        `• Coin: ${coinList.length} · TF: ${tfs.join(', ')}\n` +
+                        `• Adım: ${stats.pairs} (her coin için her TF = 1 adım; “hepsi” değil)\n`;
                     const msg =
                         stats.signals > 0
-                            ? `Tarama bitti.\n• Taranan parite: ${stats.pairs}\n• Bu turda yeni bildirilen sinyal: ${stats.signals}\n(Sinyaller ayrı mesaj olarak gönderildi.)`
-                            : `Tarama bitti.\n• Taranan parite: ${stats.pairs}\n• Bu turda eşik üzeri yeni sinyal yok.\n\nNot: Sinyaller nadirdir; eşiği .env içinde SIGNAL_THRESHOLD ile düşürebilirsiniz (risk artar).`;
+                            ? `${head}• Bu turda yeni bildirilen sinyal: ${stats.signals}\n(Sinyaller ayrı mesaj olarak gönderildi.)`
+                            : `${head}• Bu turda eşik üzeri yeni sinyal yok.\n\nNot: Sinyaller nadirdir; eşiği .env içinde SIGNAL_THRESHOLD ile düşürebilirsiniz (risk artar).`;
                     ctx.reply(msg);
                 } catch (error) {
                     ctx.reply(`Hata: ${error.message}`);
@@ -155,14 +163,23 @@ class TelegramManager {
         });
 
         this.bot.command('scalp', async (ctx) => {
-            ctx.reply('Scalp: 5m ve 15m taraması başladı...');
+            const { getScanCoins } = require('../config/coins');
+            const scalpTfs = ['5m', '15m'];
+            const nCoins = getScanCoins().length;
+            ctx.reply(
+                `Scalp: ${scalpTfs.join(' + ')} (${nCoins} coin × ${scalpTfs.length} TF = ${nCoins * scalpTfs.length} adım)...`
+            );
             try {
                 const scanner = require('./scanner');
-                const stats = await scanner.scanAll(['5m', '15m']);
+                const stats = await scanner.scanAll(scalpTfs);
+                const head =
+                    `Scalp bitti.\n` +
+                    `• Coin: ${nCoins} · TF: ${scalpTfs.join(', ')}\n` +
+                    `• Adım: ${stats.pairs} (coin × TF)\n`;
                 const msg =
                     stats.signals > 0
-                        ? `Scalp bitti.\n• Parite: ${stats.pairs}\n• Yeni sinyal bildirimi: ${stats.signals}`
-                        : `Scalp bitti.\n• Parite: ${stats.pairs}\n• Bu turda yeni sinyal yok.`;
+                        ? `${head}• Yeni sinyal bildirimi: ${stats.signals}`
+                        : `${head}• Bu turda yeni sinyal yok.`;
                 ctx.reply(msg);
             } catch (error) {
                 ctx.reply(`Hata: ${error.message}`);
@@ -273,7 +290,7 @@ class TelegramManager {
                     agoMin != null ? `${agoMin} dk önce` : 'henüz tam tur yok';
                 const msg =
                     `📊 Durum — arka plan tarama çalışıyor (sinyal olsun/olmasın).\n` +
-                    `Son tur: ${st.pairs} parite, ${st.signals} yeni sinyal (${agoStr}).`;
+                    `Son tur: ${st.pairs} adım (coin×TF), ${st.signals} yeni sinyal (${agoStr}).`;
                 this.sendMessage(msg);
             } catch (e) {
                 console.error('[heartbeat]', e.message);
@@ -296,7 +313,7 @@ class TelegramManager {
             `• /help\n\n` +
             `Sinyal eşiği: ±${th} (SIGNAL_THRESHOLD, varsayılan 50).\n` +
             `Coin listesi: SCAN_COINS (virgülle, örn. BTC,ETH,SOL). Varsayılan 7 coin.\n` +
-            `Tarama TF: SCAN_TIMEFRAMES (varsayılan 5m,15m,30m,1h). Tur: SCAN_INTERVAL (varsayılan 45s), gecikme: SCAN_PAIR_DELAY_MS (ccxt HL ~50ms; 0=yalnızca borsa limiti).\n` +
+            `Tarama TF: SCAN_TIMEFRAMES (varsayılan 5m,15m,30m). Tur: SCAN_INTERVAL (varsayılan 30s), gecikme: SCAN_PAIR_DELAY_MS (varsayılan 0).\n` +
             `Durum özeti: STATUS_HEARTBEAT_MS=300000 (5 dk), kapat: 0.\n\n` +
             `Railway: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, Replicas=1. Oto-trade: AUTO_TRADE_ENABLED, AGENTS_JSON.\n` +
             `Test: TEST_TRADE_ENABLED=true, isteğe TEST_TRADE_SYMBOL, TEST_TRADE_PCT (SL/TP mesafesi, varsayılan 0.01=%1).\n` +
@@ -310,11 +327,6 @@ class TelegramManager {
      * @returns {Promise<boolean>}
      */
     async sendSignal(symbol, timeframe, signal) {
-        if (!this.chatId) {
-            console.warn('[telegram] chatId yok — sinyal gönderilemedi.');
-            return false;
-        }
-
         const sizing = await suggestMarginLeverage(signal.type, signal.price, signal.sl, symbol);
         const notionalStr = String(Math.round(sizing.notionalUsdc));
         const pairForClaw = toDegenPairName(sizing.hlCoin).toUpperCase();
@@ -408,21 +420,27 @@ class TelegramManager {
                 : undefined;
 
         let telegramOk = false;
-        try {
-            await this.bot.telegram.sendMessage(this.chatId, message, { parse_mode: 'HTML' });
-            telegramOk = true;
-        } catch (error) {
-            console.error('Telegram HTML gönderim hatası, düz metin deneniyor:', error.message);
+        if (this.chatId) {
             try {
-                let plain = message.replace(/<b>/g, '').replace(/<\/b>/g, '');
-                plain = plain.replace(/<code>/g, '').replace(/<\/code>/g, '');
-                plain = plain.replace(/<i>/g, '').replace(/<\/i>/g, '');
-                plain = plain.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-                await this.bot.telegram.sendMessage(this.chatId, plain);
+                await this.bot.telegram.sendMessage(this.chatId, message, { parse_mode: 'HTML' });
                 telegramOk = true;
-            } catch (e2) {
-                console.error('Düz metin de gönderilemedi:', e2.message);
+            } catch (error) {
+                console.error('Telegram HTML gönderim hatası, düz metin deneniyor:', error.message);
+                try {
+                    let plain = message.replace(/<b>/g, '').replace(/<\/b>/g, '');
+                    plain = plain.replace(/<code>/g, '').replace(/<\/code>/g, '');
+                    plain = plain.replace(/<i>/g, '').replace(/<\/i>/g, '');
+                    plain = plain.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+                    await this.bot.telegram.sendMessage(this.chatId, plain);
+                    telegramOk = true;
+                } catch (e2) {
+                    console.error('Düz metin de gönderilemedi:', e2.message);
+                }
             }
+        } else {
+            console.warn(
+                '[telegram] chatId yok — Telegram bildirimi atlandı; bridge + AUTO_TRADE_ENABLED yine çalışır.'
+            );
         }
 
         try {
@@ -437,7 +455,8 @@ class TelegramManager {
             console.error('[autoTrade]', e.message);
         }
 
-        return telegramOk;
+        if (this.chatId) return telegramOk;
+        return true;
     }
 
     async sendMessage(text) {

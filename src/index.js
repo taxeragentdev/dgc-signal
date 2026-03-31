@@ -35,8 +35,20 @@ async function main() {
     const scanCoins = getScanCoins();
     logger.info(`📊 Taranan coinler (${scanCoins.length}): ${scanCoins.join(', ')} (SCAN_COINS)`);
     logger.info(`📊 Tarama TF: ${getScanTimeframes().join(', ')} (SCAN_TIMEFRAMES)`);
-    const intervalMs = parseInt(process.env.SCAN_INTERVAL, 10) || 45000;
-    logger.info(`📊 Tur aralığı: ${intervalMs / 1000}s (SCAN_INTERVAL, varsayılan 45).`);
+    const intervalMs = parseInt(process.env.SCAN_INTERVAL, 10) || 30000;
+    logger.info(`📊 Tur aralığı: ${intervalMs / 1000}s (SCAN_INTERVAL, varsayılan 30).`);
+
+    if (process.env.AUTO_TRADE_ENABLED === 'true') {
+        const { parseAgentsFromEnv } = require('./agents');
+        const n = parseAgentsFromEnv().length;
+        logger.info(
+            n > 0
+                ? `🤖 Oto-trade: açık (${n} ajan, AGENTS_JSON)`
+                : `🤖 Oto-trade: AUTO_TRADE_ENABLED ama AGENTS_JSON boş — işlem açılmaz`
+        );
+    } else {
+        logger.info('🤖 Oto-trade: kapalı (AUTO_TRADE_ENABLED=true yapın + AGENTS_JSON)');
+    }
     const hb = process.env.STATUS_HEARTBEAT_MS;
     const hbSec = hb === '0' || hb === 'false' ? 'kapalı' : `${(parseInt(hb, 10) || 300000) / 1000}s`;
     logger.info(`📊 Durum özeti (Telegram): ${hbSec} (STATUS_HEARTBEAT_MS)`);
