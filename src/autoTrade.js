@@ -15,17 +15,7 @@ function degenProvider() {
 const { toDegenPairName, extractHlCoin } = require('./hyperliquidMeta');
 const { isAgentAutoTradeEnabled } = require('./agentAutoTrade');
 const { suggestMarginLeverage } = require('./riskSizing');
-
-/** Görseldeki gibi limit/TP/SL string — küçük fiyatlar için yeterli basamak */
-function formatHlPrice(x) {
-    const n = Number(x);
-    if (!Number.isFinite(n)) return String(x);
-    const a = Math.abs(n);
-    if (a >= 1000) return n.toFixed(2);
-    if (a >= 1) return n.toFixed(4);
-    if (a >= 0.01) return n.toFixed(5);
-    return n.toFixed(6);
-}
+const { formatDegenPrice } = require('./hlPriceFormat');
 
 const HL_INFO = 'https://api.hyperliquid.xyz/info';
 const COOLDOWN_MS = parseInt(process.env.AUTO_TRADE_COOLDOWN_MS, 10) || 5 * 60 * 1000;
@@ -132,9 +122,9 @@ async function runAutoTradeOnSignal(opts) {
         size: notionalStr,
         leverage: lev,
         orderType: 'limit',
-        limitPrice: formatHlPrice(signal.price),
-        takeProfit: formatHlPrice(signal.tp[0]),
-        stopLoss: formatHlPrice(signal.sl)
+        limitPrice: formatDegenPrice(signal.price, hlCoin),
+        takeProfit: formatDegenPrice(signal.tp[0], hlCoin),
+        stopLoss: formatDegenPrice(signal.sl, hlCoin)
     };
 
     const notify = opts.notify;
@@ -309,9 +299,9 @@ async function runTestTrade(opts = {}) {
         size: notionalStr,
         leverage: lev,
         orderType: 'limit',
-        limitPrice: formatHlPrice(entry),
-        takeProfit: formatHlPrice(tp0),
-        stopLoss: formatHlPrice(sl)
+        limitPrice: formatDegenPrice(entry, hlCoin),
+        takeProfit: formatDegenPrice(tp0, hlCoin),
+        stopLoss: formatDegenPrice(sl, hlCoin)
     };
 
     try {
@@ -320,7 +310,7 @@ async function runTestTrade(opts = {}) {
         const text =
             `🧪 Test trade (${agent.alias})\n` +
             `${pairDegen} LONG — limit + TP + SL (aynı job)\n` +
-            `Giriş ~${formatHlPrice(entry)} · SL ${formatHlPrice(sl)} · TP ${formatHlPrice(tp0)}\n` +
+            `Giriş ~${formatDegenPrice(entry, hlCoin)} · SL ${formatDegenPrice(sl, hlCoin)} · TP ${formatDegenPrice(tp0, hlCoin)}\n` +
             `Notional ${notionalStr} USDC · ${lev}x → job #${jobId}`;
         return { ok: true, text };
     } catch (e) {

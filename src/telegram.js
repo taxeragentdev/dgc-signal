@@ -4,6 +4,7 @@ const { suggestMarginLeverage } = require('./riskSizing');
 const { toDegenPairName } = require('./hyperliquidMeta');
 const { dispatchTradeSignal } = require('./signalBridge');
 const { runAutoTradeOnSignal } = require('./autoTrade');
+const { formatDegenPrice } = require('./hlPriceFormat');
 
 dotenv.config();
 
@@ -35,8 +36,8 @@ class TelegramManager {
         this.chatId = process.env.TELEGRAM_CHAT_ID
             ? String(process.env.TELEGRAM_CHAT_ID)
             : undefined;
-        /** Uzun /scan ve /scalp için 90s zaman aşımı kalksın (Railway timeout) */
-        this.bot = new Telegraf(this.token, { handlerTimeout: 0 });
+        /** 0 = p-timeout anında hata verir; Infinity = pratik süre sınırı yok (Telegraf+p-timeout) */
+        this.bot = new Telegraf(this.token, { handlerTimeout: Infinity });
 
         this.bot.use(async (ctx, next) => {
             if (ctx.chat?.id) {
@@ -298,7 +299,8 @@ class TelegramManager {
             `Tarama TF: SCAN_TIMEFRAMES (varsayılan 5m,15m,30m,1h). Tur: SCAN_INTERVAL (varsayılan 45s), gecikme: SCAN_PAIR_DELAY_MS (ccxt HL ~50ms; 0=yalnızca borsa limiti).\n` +
             `Durum özeti: STATUS_HEARTBEAT_MS=300000 (5 dk), kapat: 0.\n\n` +
             `Railway: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, Replicas=1. Oto-trade: AUTO_TRADE_ENABLED, AGENTS_JSON.\n` +
-            `Test: TEST_TRADE_ENABLED=true, isteğe TEST_TRADE_SYMBOL (örn. BTC/USDC:USDC), TEST_TRADE_PCT (SL/TP mesafesi, varsayılan 0.01=%1).\n\n` +
+            `Test: TEST_TRADE_ENABLED=true, isteğe TEST_TRADE_SYMBOL, TEST_TRADE_PCT (SL/TP mesafesi, varsayılan 0.01=%1).\n` +
+            `Degen fiyat: BTC/ETH tam sayı tick (DEGEN_INTEGER_PRICE_COINS=BTC,ETH).\n\n` +
             `Oto-trade: ACP x-api-key + agent cüzdanı; leaderboard RSA anahtarları ayrıdır (join).\n` +
             `Degen: limit + TP + SL birlikte gönderilir. AGENTS_JSON'da autoTrade:false veya /autotrade off.`;
         ctx.reply(helpMessage);
@@ -352,9 +354,9 @@ class TelegramManager {
                     size: notionalStr,
                     leverage: sizing.leverage,
                     orderType: 'limit',
-                    limitPrice: String(signal.price),
-                    takeProfit: String(signal.tp[0]),
-                    stopLoss: String(signal.sl)
+                    limitPrice: formatDegenPrice(signal.price, sizing.hlCoin),
+                    takeProfit: formatDegenPrice(signal.tp[0], sizing.hlCoin),
+                    stopLoss: formatDegenPrice(signal.sl, sizing.hlCoin)
                 }
             }
         };
