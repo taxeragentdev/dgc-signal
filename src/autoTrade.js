@@ -3,7 +3,7 @@
  * super-saiyan AGENTS_JSON + ichimoku ACP gövdesi ile uyumlu.
  */
 
-const { parseAgentsFromEnv } = require('./agents');
+const { parseAgentsFromEnv, normalizeAlias } = require('./agents');
 const { getAcpBaseUrl } = require('./constants');
 
 function degenProvider() {
@@ -12,8 +12,9 @@ function degenProvider() {
         '0xd478a8B40372db16cA8045F28C6FE07228F3781A'
     );
 }
-const { toDegenPairName } = require('./hyperliquidMeta');
+const { toDegenPairName, extractHlCoin } = require('./hyperliquidMeta');
 const { isAgentAutoTradeEnabled } = require('./agentAutoTrade');
+const { suggestMarginLeverage } = require('./riskSizing');
 
 /** Görseldeki gibi limit/TP/SL string — küçük fiyatlar için yeterli basamak */
 function formatHlPrice(x) {
@@ -201,8 +202,135 @@ async function runAutoTradeOnSignal(opts) {
     }
 }
 
+/**
+ * Tek seferlik Degen perp_trade (limit + TP + SL) — sinyal beklemeden test.
+ * TEST_TRADE_ENABLED=true ve AGENTS_JSON gerekli. Gerçek emir gönderir.
+ *
+ * @param {{ alias?: string, symbol?: string }} opts
+ * @returns {Promise<{ ok: boolean, text: string }>}
+ */
+async function runTestTrade(opts = {}) {
+    const requestedAlias = opts.alias != null ? normalizeAlias(String(opts.alias)) : '';
+    const symbolOverride = opts.symbol?.trim();
+
+    if (process.env.TEST_TRADE_ENABLED !== 'true') {
+        return {
+            ok: false,
+            text:
+                'Test trade kapalı. Railway’de TEST_TRADE_ENABLED=true yapın (gerçek Degen emri; küçük FIXED_MARGIN_USDC ile deneyin).'
+        };
+    }
+
+    const agents = parseAgentsFromEnv();
+    if (agents.length === 0) {
+        return { ok: false, text: 'AGENTS_JSON yok.' };
+    }
+
+    let agent;
+    if (requestedAlias) {
+        agent = agents.find((a) => a.alias === requestedAlias);
+        if (!agent) {
+            return { ok: false, text: `Ajan yok: ${requestedAlias}. /autotrade list` };
+        }
+    } else {
+        agent = agents[0];
+    }
+
+    if (!isAgentAutoTradeEnabled(agent)) {
+        return { ok: false, text: `${agent.alias}: oto-trade kapalı.` };
+    }
+
+    const symbol =
+        symbolOverride ||
+        (process.env.TEST_TRADE_SYMBOL && process.env.TEST_TRADE_SYMBOL.trim()) ||
+        'BTC/USDC:USDC';
+
+    const hlCoin = extractHlCoin(symbol);
+    const pairDegen = toDegenPairName(hlCoin).toUpperCase();
+
+    let wallet = agent.walletAddress || null;
+    if (!wallet) {
+        try {
+            wallet = await fetchAcpWallet(agent.apiKey);
+        } catch (e) {
+            return { ok: false, text: `[${agent.alias}] /acp/me: ${e.message}` };
+        }
+    }
+    if (!wallet) {
+        return { ok: false, text: `[${agent.alias}] cüzdan yok — AGENTS_JSON walletAddress veya geçerli apiKey.` };
+    }
+
+    let openCoins;
+    try {
+        openCoins = await fetchOpenPositionCoins(wallet);
+    } catch (e) {
+        return { ok: false, text: `HL pozisyon okunamadı: ${e.message}` };
+    }
+
+    if (openCoins.has(hlCoin)) {
+        return {
+            ok: false,
+            text: `${hlCoin} için zaten açık pozisyon var — test atlanıyor.`
+        };
+    }
+
+    const exchange = require('./exchange');
+    let candles;
+    try {
+        candles = await exchange.fetchOHLCV(symbol, '5m', 2);
+    } catch (e) {
+        return { ok: false, text: `Fiyat alınamadı: ${e.message}` };
+    }
+    if (!candles || candles.length < 1) {
+        return { ok: false, text: 'Yetersiz mum verisi.' };
+    }
+
+    const entry = Number(candles[candles.length - 1].close);
+    if (!Number.isFinite(entry) || entry <= 0) {
+        return { ok: false, text: 'Geçersiz fiyat.' };
+    }
+
+    const pctRaw = process.env.TEST_TRADE_PCT?.trim();
+    const pctParsed = pctRaw ? parseFloat(pctRaw) : 0.01;
+    const pctSafe =
+        Number.isFinite(pctParsed) && pctParsed > 0 && pctParsed < 0.5 ? pctParsed : 0.01;
+
+    const sl = entry * (1 - pctSafe);
+    const tp0 = entry * (1 + pctSafe);
+
+    const sizing = await suggestMarginLeverage('LONG', entry, sl, symbol);
+    const notionalStr = String(Math.round(sizing.notionalUsdc));
+    const lev = sizing.leverage;
+
+    const serviceRequirements = {
+        action: 'open',
+        pair: pairDegen,
+        side: 'long',
+        size: notionalStr,
+        leverage: lev,
+        orderType: 'limit',
+        limitPrice: formatHlPrice(entry),
+        takeProfit: formatHlPrice(tp0),
+        stopLoss: formatHlPrice(sl)
+    };
+
+    try {
+        const data = await createPerpOpenJob(agent.apiKey, serviceRequirements);
+        const jobId = data?.data?.jobId ?? data?.jobId ?? '?';
+        const text =
+            `🧪 Test trade (${agent.alias})\n` +
+            `${pairDegen} LONG — limit + TP + SL (aynı job)\n` +
+            `Giriş ~${formatHlPrice(entry)} · SL ${formatHlPrice(sl)} · TP ${formatHlPrice(tp0)}\n` +
+            `Notional ${notionalStr} USDC · ${lev}x → job #${jobId}`;
+        return { ok: true, text };
+    } catch (e) {
+        return { ok: false, text: `ACP: ${e.message}` };
+    }
+}
+
 module.exports = {
     runAutoTradeOnSignal,
     fetchOpenPositionCoins,
-    fetchAcpWallet
+    fetchAcpWallet,
+    runTestTrade
 };

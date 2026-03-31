@@ -35,7 +35,8 @@ class TelegramManager {
         this.chatId = process.env.TELEGRAM_CHAT_ID
             ? String(process.env.TELEGRAM_CHAT_ID)
             : undefined;
-        this.bot = new Telegraf(this.token);
+        /** Uzun /scan ve /scalp için 90s zaman aşımı kalksın (Railway timeout) */
+        this.bot = new Telegraf(this.token, { handlerTimeout: 0 });
 
         this.bot.use(async (ctx, next) => {
             if (ctx.chat?.id) {
@@ -73,7 +74,7 @@ class TelegramManager {
             const { getScanTimeframes } = require('./scanConfig');
             const th = process.env.SIGNAL_THRESHOLD || '50';
             const tfs = getScanTimeframes().join(', ');
-            const intervalSec = (parseInt(process.env.SCAN_INTERVAL, 10) || 120000) / 1000;
+            const intervalSec = (parseInt(process.env.SCAN_INTERVAL, 10) || 45000) / 1000;
             ctx.reply(
                 `✅ Bot çalışıyor (Hyperliquid)\n` +
                 `📐 Eşik: ±${th} (SIGNAL_THRESHOLD)\n` +
@@ -99,7 +100,8 @@ class TelegramManager {
         });
 
         this.bot.command('list', (ctx) => {
-            const coins = require('../config/coins');
+            const { getScanCoins } = require('../config/coins');
+            const coins = getScanCoins();
             ctx.reply(`Taranan coinler (${coins.length}): ${coins.join(', ')}`);
         });
 
@@ -108,7 +110,7 @@ class TelegramManager {
 
             if (args.length === 1) {
                 ctx.reply(
-                    'Toplu tarama başladı (tüm liste, tüm zaman dilimleri). Birkaç dakika sürebilir; bitince özet gelecek.'
+                    'Toplu tarama başladı (SCAN_COINS, tüm zaman dilimleri). Birkaç dakika sürebilir; bitince özet gelecek.'
                 );
                 try {
                     const scanner = require('./scanner');
@@ -218,6 +220,19 @@ class TelegramManager {
             );
         });
 
+        this.bot.command('testtrade', async (ctx) => {
+            const parts = (ctx.message.text || '').trim().split(/\s+/);
+            const aliasArg = (parts[1] || '').toLowerCase();
+            ctx.reply('🧪 Test trade (Degen limit+TP+SL) gönderiliyor...');
+            try {
+                const { runTestTrade } = require('./autoTrade');
+                const res = await runTestTrade({ alias: aliasArg || undefined });
+                await ctx.reply(res.text);
+            } catch (e) {
+                await ctx.reply(`Hata: ${e.message}`);
+            }
+        });
+
         this.bot.catch((err, ctx) => {
             console.error(`Telegraf error for ${ctx.updateType}`, err);
             ctx.reply(`Beklenmedik hata: ${err.message}`);
@@ -226,23 +241,64 @@ class TelegramManager {
 
     async launch() {
         await this.bot.launch();
+        this.startHeartbeat();
+    }
+
+    /**
+     * Arka plan tarama sürer; sadece özet bilgi (varsayılan 5 dk).
+     * STATUS_HEARTBEAT_MS=0 kapatır.
+     */
+    startHeartbeat() {
+        const raw = process.env.STATUS_HEARTBEAT_MS;
+        if (raw === '0' || raw === 'false') return;
+        const parsed = parseInt(raw, 10);
+        const intervalMs =
+            raw === undefined || raw === ''
+                ? 300000
+                : Number.isFinite(parsed) && parsed > 0
+                  ? parsed
+                  : 300000;
+
+        setInterval(() => {
+            try {
+                const scanner = require('./scanner');
+                const st = scanner.getLastRoundStats();
+                if (!this.chatId || !st) return;
+                const agoMin =
+                    st.finishedAt > 0
+                        ? Math.round((Date.now() - st.finishedAt) / 60000)
+                        : null;
+                const agoStr =
+                    agoMin != null ? `${agoMin} dk önce` : 'henüz tam tur yok';
+                const msg =
+                    `📊 Durum — arka plan tarama çalışıyor (sinyal olsun/olmasın).\n` +
+                    `Son tur: ${st.pairs} parite, ${st.signals} yeni sinyal (${agoStr}).`;
+                this.sendMessage(msg);
+            } catch (e) {
+                console.error('[heartbeat]', e.message);
+            }
+        }, intervalMs);
     }
 
     sendHelp(ctx) {
-        const th = process.env.SIGNAL_THRESHOLD || '55';
+        const th = process.env.SIGNAL_THRESHOLD || '50';
         const helpMessage =
             `Kripto Sinyal Botu (Hyperliquid)\n\n` +
-            `• /scan — Tüm listeyi tarar\n` +
+            `• /scan — SCAN_COINS listesini tarar\n` +
             `• /scan COIN [TF] — Tek coin analizi\n` +
             `• /scalp — 5m + 15m hızlı tarama\n` +
             `• /list — Coin listesi\n` +
             `• /status — Özet\n` +
             `• /check — Borsa + sohbet\n` +
             `• /autotrade list | on <alias> | off <alias> — ajan oto-trade\n` +
+            `• /testtrade [alias] — Degen test (TEST_TRADE_ENABLED=true)\n` +
             `• /help\n\n` +
             `Sinyal eşiği: ±${th} (SIGNAL_THRESHOLD, varsayılan 50).\n` +
-            `Tarama TF: SCAN_TIMEFRAMES (varsayılan 5m,15m,30m,1h — HL'de 10m yok; 4h kapalı).\n` +
-            `Tur süresi: SCAN_INTERVAL (varsayılan 120s), parite gecikmesi: SCAN_PAIR_DELAY_MS.\n\n` +
+            `Coin listesi: SCAN_COINS (virgülle, örn. BTC,ETH,SOL). Varsayılan 7 coin.\n` +
+            `Tarama TF: SCAN_TIMEFRAMES (varsayılan 5m,15m,30m,1h). Tur: SCAN_INTERVAL (varsayılan 45s), gecikme: SCAN_PAIR_DELAY_MS (ccxt HL ~50ms; 0=yalnızca borsa limiti).\n` +
+            `Durum özeti: STATUS_HEARTBEAT_MS=300000 (5 dk), kapat: 0.\n\n` +
+            `Railway: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, Replicas=1. Oto-trade: AUTO_TRADE_ENABLED, AGENTS_JSON.\n` +
+            `Test: TEST_TRADE_ENABLED=true, isteğe TEST_TRADE_SYMBOL (örn. BTC/USDC:USDC), TEST_TRADE_PCT (SL/TP mesafesi, varsayılan 0.01=%1).\n\n` +
             `Oto-trade: ACP x-api-key + agent cüzdanı; leaderboard RSA anahtarları ayrıdır (join).\n` +
             `Degen: limit + TP + SL birlikte gönderilir. AGENTS_JSON'da autoTrade:false veya /autotrade off.`;
         ctx.reply(helpMessage);

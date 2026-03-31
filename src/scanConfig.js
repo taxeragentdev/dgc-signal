@@ -17,7 +17,7 @@ function getScanTimeframes() {
 
 function getPairDelayMs() {
     const n = parseInt(process.env.SCAN_PAIR_DELAY_MS, 10);
-    return Number.isFinite(n) && n >= 0 ? n : 100;
+    return Number.isFinite(n) && n >= 0 ? n : 50;
 }
 
 module.exports = { getScanTimeframes, getPairDelayMs, DEFAULT_TFS };

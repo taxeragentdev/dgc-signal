@@ -31,9 +31,15 @@ async function main() {
     logger.info('✅ Telegram polling hazır.');
 
     const { getScanTimeframes } = require('./scanConfig');
+    const { getScanCoins } = require('../config/coins');
+    const scanCoins = getScanCoins();
+    logger.info(`📊 Taranan coinler (${scanCoins.length}): ${scanCoins.join(', ')} (SCAN_COINS)`);
     logger.info(`📊 Tarama TF: ${getScanTimeframes().join(', ')} (SCAN_TIMEFRAMES)`);
-    const intervalMs = parseInt(process.env.SCAN_INTERVAL, 10) || 120000;
-    logger.info(`📊 Tur aralığı: ${intervalMs / 1000}s (SCAN_INTERVAL, varsayılan 120).`);
+    const intervalMs = parseInt(process.env.SCAN_INTERVAL, 10) || 45000;
+    logger.info(`📊 Tur aralığı: ${intervalMs / 1000}s (SCAN_INTERVAL, varsayılan 45).`);
+    const hb = process.env.STATUS_HEARTBEAT_MS;
+    const hbSec = hb === '0' || hb === 'false' ? 'kapalı' : `${(parseInt(hb, 10) || 300000) / 1000}s`;
+    logger.info(`📊 Durum özeti (Telegram): ${hbSec} (STATUS_HEARTBEAT_MS)`);
 
     scanner.start().catch((err) => {
         logger.error(`❌ Tarama döngüsü: ${err.message}`);
@@ -57,7 +63,16 @@ async function main() {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
-main().catch(err => {
-    logger.error(`❌ Bot başlatılırken kritik hata: ${err.message}`);
+main().catch((err) => {
+    const msg = err?.message || String(err);
+    logger.error(`❌ Bot başlatılırken kritik hata: ${msg}`);
+    if (msg.includes('409') || msg.includes('Conflict') || msg.includes('getUpdates')) {
+        logger.error(
+            '→ 409: Aynı TELEGRAM_BOT_TOKEN ile başka bir süreç zaten polling yapıyor.\n' +
+                '  • PC\'de `node src/index.js` veya başka sunucu çalışıyorsa durdurun.\n' +
+                '  • Railway: Service → Settings → Replicas = 1 olmalı (aynı servisten iki kopya olmasın).\n' +
+                '  • Webhook: api.telegram.org/bot + TOKEN + /deleteWebhook (köşeli parantez yok)'
+        );
+    }
     process.exit(1);
 });

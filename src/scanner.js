@@ -1,7 +1,7 @@
 const exchange = require('./exchange');
 const confluence = require('./analysis/confluence');
 const telegram = require('./telegram');
-const coins = require('../config/coins');
+const { getScanCoins } = require('../config/coins');
 const winston = require('winston');
 const { getScanTimeframes, getPairDelayMs } = require('./scanConfig');
 
@@ -10,6 +10,8 @@ class MarketScanner {
         this.timeframes = getScanTimeframes();
         this.pairDelayMs = getPairDelayMs();
         this.lastSignals = {};
+        /** Son tamamlanan arka plan turu (heartbeat için) */
+        this.lastRoundStats = { pairs: 0, signals: 0, finishedAt: 0 };
         this._scanChain = Promise.resolve();
         this.logger = winston.createLogger({
             level: 'info',
@@ -20,8 +22,12 @@ class MarketScanner {
 
     getLoopIntervalMs() {
         const n = parseInt(process.env.SCAN_INTERVAL, 10);
-        /** Varsayılan 120s — tam tur daha sık tekrar */
-        return Number.isFinite(n) && n > 0 ? n : 120000;
+        /** Varsayılan 45s — tam tur bitince bekleme (env ile hızlandırılabilir) */
+        return Number.isFinite(n) && n > 0 ? n : 45000;
+    }
+
+    getLastRoundStats() {
+        return this.lastRoundStats;
     }
 
     async scanAll(tfs = this.timeframes) {
@@ -32,6 +38,7 @@ class MarketScanner {
     }
 
     async _runScanAll(tfs) {
+        const coins = getScanCoins();
         this.logger.info(`Starting market scan for ${coins.length} symbols...`);
 
         let pairs = 0;
@@ -51,6 +58,7 @@ class MarketScanner {
         }
 
         this.logger.info(`Scan round finished: pairs=${pairs}, newSignals=${signals}`);
+        this.lastRoundStats = { pairs, signals, finishedAt: Date.now() };
         return { pairs, signals };
     }
 
