@@ -31,6 +31,15 @@ class ExchangeManager {
      */
     async fetchOHLCV(symbol, timeframe = '1h', limit = 100) {
         try {
+            // Validate inputs
+            if (!symbol || !symbol.includes('/')) {
+                throw new Error(`Geçersiz pair format: "${symbol}" (örnek: BTC/USDC:USDC)`);
+            }
+            const validTfs = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '1w', '1M'];
+            if (!validTfs.includes(timeframe)) {
+                throw new Error(`Geçersiz timeframe: "${timeframe}" (izin verilenler: ${validTfs.join(', ')})`);
+            }
+
             const ohlcv = await this.exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
             
             if (!ohlcv || ohlcv.length === 0) {
@@ -46,9 +55,11 @@ class ExchangeManager {
                 volume: candle[5]
             }));
         } catch (error) {
-            const msg = `Hyperliquid Hatası (${symbol} - ${timeframe}): ${error.message}`;
+            const status = error.response?.status || '';
+            const statusText = error.response?.statusText || '';
+            const msg = `Hyperliquid Hatası [${status} ${statusText}] (${symbol} - ${timeframe}): ${error.message}`;
             this.logger.error(msg);
-            throw new Error(msg); // Throw so the scanner can catch and report
+            throw new Error(msg);
         }
     }
 
