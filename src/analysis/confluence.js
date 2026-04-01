@@ -478,19 +478,8 @@ class ConfluenceManager {
         };
     }
 
-        return {
-            signal,
-            rawScore: score,
-            rsi,
-            trend,
-            blockedByRsi,
-            threshold,
-            reason: null
-        };
-    }
-
-    analyze(candles) {
-        return this.evaluate(candles).signal;
+    analyze(candles, timeframe) {
+        return this.evaluate(candles, timeframe).signal;
     }
 
     calculateSLTP(type, price, atr, pivots) {
