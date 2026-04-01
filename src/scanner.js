@@ -83,11 +83,18 @@ class MarketScanner {
                 }
             }
 
-            // Gönder: her coin için sadece best TF signal
             for (const [symbol, bestSig] of Object.entries(this.bestSignalPerCoin)) {
+                const key = bestSig._dedupeKey;
+                if (key && this.lastSignals[key]) continue;
+
+                delete bestSig._dedupeKey;
                 const sent = await telegram.sendSignal(symbol, bestSig.timeframe, bestSig);
-                if (sent) signals++;
-                else this.logger.error(`Sinyal Telegram'a iletilemedi (${symbol})`);
+                if (sent) {
+                    if (key) this.lastSignals[key] = true;
+                    signals++;
+                } else {
+                    this.logger.error(`Sinyal Telegram'a iletilemedi (${symbol})`);
+                }
             }
         } finally {
             this.scanInProgress = false;
@@ -127,7 +134,7 @@ class MarketScanner {
                             rsi: null,
                             trend: '',
                             blockedByRsi: false,
-                            threshold: confluence.getThreshold(),
+                            threshold: confluence.getThreshold(timeframe),
                             reason: 'insufficient_candles'
                         }
                     };
@@ -152,21 +159,19 @@ class MarketScanner {
             const lastCandleTime = candles[candles.length - 1].timestamp;
             const signalKey = `${symbol}_${timeframe}_${signal.type}_${lastCandleTime}`;
 
-            if (isManual || !this.lastSignals[signalKey]) {
-                if (!isManual) {
-                    this.lastSignals[signalKey] = true;
-                    this.logger.info(`🚨 SIGNAL FOUND: ${symbol} ${timeframe} ${signal.type}`);
-                    const sent = await telegram.sendSignal(symbol, timeframe, signal);
-                    if (!sent) {
-                        this.logger.error(`Sinyal Telegram'a iletilemedi (${symbol} ${timeframe})`);
-                    }
-                }
+            if (this.lastSignals[signalKey]) {
                 if (isManual) return { manual: true, signal };
-                return signal;
+                return null;
             }
 
-            if (isManual) return { manual: true, signal };
-            return null;
+            if (isManual) {
+                return { manual: true, signal };
+            }
+
+            /** Arka plan: Telegram burada değil; tur sonunda coin başına en iyi skor gönderilir */
+            signal._dedupeKey = signalKey;
+            this.logger.info(`🚨 SIGNAL (tur içi): ${symbol} ${timeframe} ${signal.type} skor=${signal.score}`);
+            return signal;
         } catch (error) {
             this.logger.error(`Scan error (${symbol} - ${timeframe}): ${error.message}`);
             if (isManual) throw error;
@@ -204,11 +209,14 @@ class MarketScanner {
                 console.error(`[scanner] ERROR: ${error.message}`);
 
                 if (consecutiveErrors >= maxConsecutiveErrors) {
-                    this.logger.error(`❌ ${maxConsecutiveErrors} ardışık hata. Bot durduruluyor.`);
-                    process.exit(1);
+                    this.logger.error(
+                        `❌ ${maxConsecutiveErrors} ardışık hata — tarama durmuyor, 30s bekleniyor (sürekli çalışma).`
+                    );
+                    consecutiveErrors = 0;
+                    await new Promise((resolve) => setTimeout(resolve, 30000));
+                } else {
+                    await new Promise((resolve) => setTimeout(resolve, 5000));
                 }
-
-                await new Promise(resolve => setTimeout(resolve, 5000));
             }
         }
     }

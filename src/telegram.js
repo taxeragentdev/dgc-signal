@@ -426,9 +426,8 @@ class TelegramManager {
         message += `RSI: ${escapeHtml(signal.indicators.rsi.toFixed(1))}\n`;
         message += `Yapı: ${escapeHtml(String(signal.trend))}\n`;
 
-        // Score breakdown (debug)
-        if (signal.scoreBreakdown) {
-            message += `📋 Skor: ${escapeHtml(signal.scoreBreakdown)}\n`;
+        if (process.env.TELEGRAM_SHOW_SCORE_DETAIL === 'true' && signal.scoreBreakdown) {
+            message += `📋 Skor detay: ${escapeHtml(String(signal.scoreBreakdown))}\n`;
         }
 
         if (signal.smc.sweep) {
@@ -439,12 +438,6 @@ class TelegramManager {
         }
         if (signal.smc.ob) {
             message += `SMC: OB (${escapeHtml(signal.smc.ob.type)})\n`;
-        }
-
-        // Show JSON only in debug mode
-        if (process.env.SCAN_DEBUG === 'true') {
-            const jsonStr = JSON.stringify(payload);
-            message += `\n📋 <b>Debug Payload:</b>\n<code>${escapeHtml(jsonStr)}</code>`;
         }
 
         const notify =
@@ -489,7 +482,8 @@ class TelegramManager {
         }
 
         if (this.chatId) return telegramOk;
-        return true;    }
+        return true;
+    }
 
     async sendMessage(text) {
         if (!this.chatId) return;
