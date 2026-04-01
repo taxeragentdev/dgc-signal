@@ -247,6 +247,37 @@ class ConfluenceManager {
         const indicatorData = indicators.calculate(candles);
         const pivots = structure.findPivots(candles);
         const trend = structure.getMarketStructure(pivots);
+
+        // ⛔ Blocker: RANGING trend'de sinyal verme (şüpheli)
+        if (trend === 'RANGING') {
+            return {
+                signal: null,
+                rawScore: 0,
+                rsi: indicatorData.rsi,
+                trend: 'RANGING',
+                blockedByRsi: false,
+                threshold,
+                reason: 'ranging_no_signal'
+            };
+        }
+
+        // ⛔ Blocker: Minimum ATR gereksinimi (çok düşük volatilite = noise)
+        const minAtrPct = 0.4;  // minimum 0.4% ATR
+        if (Number.isFinite(indicatorData.atr) && indicatorData.currentPrice > 0) {
+            const atrPct = (indicatorData.atr / indicatorData.currentPrice) * 100;
+            if (atrPct < minAtrPct) {
+                return {
+                    signal: null,
+                    rawScore: 0,
+                    rsi: indicatorData.rsi,
+                    trend,
+                    blockedByRsi: false,
+                    threshold,
+                    reason: `low_atr_${atrPct.toFixed(2)}pct`
+                };
+            }
+        }
+
         const fvg = smc.detectFVG(candles);
         const sweep = smc.detectLiquiditySweep(candles, pivots);
         const ob = smc.detectOrderBlock(candles);
@@ -256,71 +287,147 @@ class ConfluenceManager {
         const macd = indicatorData.macd;
 
         let score = 0;
+        const scoreBreakdown = [];  // Debug için
 
         // Base trend
-        if (trend === 'BULLISH') score += 16;
-        else if (trend === 'BEARISH') score -= 16;
+        if (trend === 'BULLISH') {
+            score += 16;
+            scoreBreakdown.push('trend_bullish:+16');
+        } else if (trend === 'BEARISH') {
+            score -= 16;
+            scoreBreakdown.push('trend_bearish:-16');
+        }
 
         // Price vs EMA
         if (Number.isFinite(price) && Number.isFinite(indicatorData.ema200)) {
-            if (price > indicatorData.ema200) score += 8;
-            else score -= 8;
+            if (price > indicatorData.ema200) {
+                score += 8;
+                scoreBreakdown.push('price_ema200:+8');
+            } else {
+                score -= 8;
+                scoreBreakdown.push('price_ema200:-8');
+            }
         }
 
         if (Number.isFinite(indicatorData.ema50) && Number.isFinite(indicatorData.ema200)) {
-            if (indicatorData.ema50 > indicatorData.ema200) score += 10;
-            else score -= 10;
+            if (indicatorData.ema50 > indicatorData.ema200) {
+                score += 10;
+                scoreBreakdown.push('ema50_ema200:+10');
+            } else {
+                score -= 10;
+                scoreBreakdown.push('ema50_ema200:-10');
+            }
         }
 
         if (Number.isFinite(price) && Number.isFinite(indicatorData.ema20)) {
-            if (price > indicatorData.ema20) score += 8;
-            else score -= 8;
+            if (price > indicatorData.ema20) {
+                score += 8;
+                scoreBreakdown.push('price_ema20:+8');
+            } else {
+                score -= 8;
+                scoreBreakdown.push('price_ema20:-8');
+            }
         }
 
-        // EMA Cross
-        score += this.scoreFromEmaCross(indicatorData);
+        // EMA Cross — güçlü sinyal
+        const emaCrossScore = this.scoreFromEmaCross(indicatorData);
+        if (emaCrossScore !== 0) {
+            score += emaCrossScore;
+            scoreBreakdown.push(`ema_cross:${emaCrossScore > 0 ? '+' : ''}${emaCrossScore}`);
+        }
 
         // MACD
         if (macd && Number.isFinite(macd.MACD) && Number.isFinite(macd.signal)) {
-            if (macd.MACD > macd.signal) score += 14;
-            else score -= 14;
+            if (macd.MACD > macd.signal) {
+                score += 14;
+                scoreBreakdown.push('macd_bullish:+14');
+            } else {
+                score -= 14;
+                scoreBreakdown.push('macd_bearish:-14');
+            }
         }
 
-        // RSI
-        score += this.scoreFromRsi(rsi);
+        // RSI — risk yönetimi
+        const rsiScore = this.scoreFromRsi(rsi);
+        if (rsiScore !== 0) {
+            score += rsiScore;
+            scoreBreakdown.push(`rsi:${rsiScore > 0 ? '+' : ''}${rsiScore}`);
+        }
 
         // Bollinger
-        score += this.scoreFromBollinger(price, indicatorData.bb);
+        const bbScore = this.scoreFromBollinger(price, indicatorData.bb);
+        if (bbScore !== 0) {
+            score += bbScore;
+            scoreBreakdown.push(`bolling:${bbScore > 0 ? '+' : ''}${bbScore}`);
+        }
 
         // ADX
-        score += this.scoreFromAdx(indicatorData.adx, trend);
+        const adxScore = this.scoreFromAdx(indicatorData.adx, trend);
+        if (adxScore !== 0) {
+            score += adxScore;
+            scoreBreakdown.push(`adx:${adxScore > 0 ? '+' : ''}${adxScore}`);
+        }
 
         // Last candle
-        score += this.scoreFromLastCandle(candles);
+        const lastCandleScore = this.scoreFromLastCandle(candles);
+        if (lastCandleScore !== 0) {
+            score += lastCandleScore;
+            scoreBreakdown.push(`last_candle:${lastCandleScore > 0 ? '+' : ''}${lastCandleScore}`);
+        }
 
-        // NEW: Volume Score
-        score += this.scoreFromVolume(indicatorData, candles);
+        // Volume — moderate weight (was too aggressive)
+        const volScore = this.scoreFromVolume(indicatorData, candles);
+        if (volScore !== 0) {
+            score += volScore * 0.7;  // 70% weight reduction (was 100%)
+            scoreBreakdown.push(`volume:${(volScore * 0.7).toFixed(0)}`);
+        }
 
-        // NEW: Volatility Score
-        score += this.scoreFromVolatility(indicatorData);
+        // Volatility
+        const volatilityScore = this.scoreFromVolatility(indicatorData);
+        if (volatilityScore !== 0) {
+            score += volatilityScore;
+            scoreBreakdown.push(`volatility:${volatilityScore > 0 ? '+' : ''}${volatilityScore}`);
+        }
 
-        // NEW: Pattern Score
-        score += this.scoreFromPattern(candles);
+        // Pattern — reduced weight (was too aggressive)
+        const patternScore = this.scoreFromPattern(candles);
+        if (patternScore !== 0) {
+            score += patternScore * 0.5;  // 50% weight reduction
+            scoreBreakdown.push(`pattern:${(patternScore * 0.5).toFixed(0)}`);
+        }
 
         // Smart Money
         if (sweep) {
-            if (sweep.type === 'BULLISH') score += 18;
-            if (sweep.type === 'BEARISH') score -= 18;
+            if (sweep.type === 'BULLISH') {
+                score += 18;
+                scoreBreakdown.push('sweep_bullish:+18');
+            }
+            if (sweep.type === 'BEARISH') {
+                score -= 18;
+                scoreBreakdown.push('sweep_bearish:-18');
+            }
         }
 
         if (fvg) {
-            if (fvg.type === 'BULLISH') score += 10;
-            if (fvg.type === 'BEARISH') score -= 10;
+            if (fvg.type === 'BULLISH') {
+                score += 10;
+                scoreBreakdown.push('fvg_bullish:+10');
+            }
+            if (fvg.type === 'BEARISH') {
+                score -= 10;
+                scoreBreakdown.push('fvg_bearish:-10');
+            }
         }
 
         if (ob) {
-            if (ob.type === 'BULLISH') score += 10;
-            if (ob.type === 'BEARISH') score -= 10;
+            if (ob.type === 'BULLISH') {
+                score += 10;
+                scoreBreakdown.push('ob_bullish:+10');
+            }
+            if (ob.type === 'BEARISH') {
+                score -= 10;
+                scoreBreakdown.push('ob_bearish:-10');
+            }
         }
 
         let signalType = null;
@@ -354,9 +461,22 @@ class ConfluenceManager {
                 pivots,
                 smc: { fvg, sweep, ob },
                 sl: slTp.sl,
-                tp: slTp.tp
+                tp: slTp.tp,
+                scoreBreakdown: scoreBreakdown.join(' | ')  // DEBUG
             };
         }
+
+        return {
+            signal,
+            rawScore: score,
+            rsi,
+            trend,
+            blockedByRsi,
+            threshold,
+            reason: null,
+            scoreBreakdown: scoreBreakdown.join(' | ')  // DEBUG
+        };
+    }
 
         return {
             signal,

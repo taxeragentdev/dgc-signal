@@ -426,6 +426,11 @@ class TelegramManager {
         message += `RSI: ${escapeHtml(signal.indicators.rsi.toFixed(1))}\n`;
         message += `Yapı: ${escapeHtml(String(signal.trend))}\n`;
 
+        // Score breakdown (debug)
+        if (signal.scoreBreakdown) {
+            message += `📋 Skor: ${escapeHtml(signal.scoreBreakdown)}\n`;
+        }
+
         if (signal.smc.sweep) {
             message += `SMC: likidite süpürmesi (${escapeHtml(signal.smc.sweep.type)})\n`;
         }
