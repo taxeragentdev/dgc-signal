@@ -56,6 +56,10 @@ async function main() {
     const hbSec = hb === '0' || hb === 'false' ? 'kapalı' : `${(parseInt(hb, 10) || 300000) / 1000}s`;
     logger.info(`📊 Durum özeti (Telegram): ${hbSec} (STATUS_HEARTBEAT_MS)`);
 
+    const { getStrategy } = require('./analysis/strategy');
+    logger.info(`📊 Strateji: SIGNAL_STRATEGY=${getStrategy()} (confluence / bollinger / hybrid)`);
+
+    logger.info('📡 scanner.start() çağrılıyor — sürekli tarama başlıyor...');
     scanner.start().catch((err) => {
         logger.error(`❌ Tarama döngüsü: ${err.message}`);
     });

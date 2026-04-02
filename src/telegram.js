@@ -74,9 +74,10 @@ class TelegramManager {
         this.bot.command('status', (ctx) => {
             const { getScanTimeframes } = require('./scanConfig');
             const { getScanCoins } = require('../config/coins');
-            const confluence = require('./analysis/confluence');
-            const scanner = require('./scanner');
-            const th = String(confluence.getThreshold());
+        const confluence = require('./analysis/confluence');
+        const strategy = require('./analysis/strategy');
+        const scanner = require('./scanner');
+        const th = String(strategy.getThreshold());
             const tfs = getScanTimeframes().join(', ');
             const tfKaynak = process.env.SCAN_TIMEFRAMES?.trim()
                 ? 'SCAN_TIMEFRAMES'
@@ -320,8 +321,8 @@ class TelegramManager {
     }
 
     sendHelp(ctx) {
-        const confluence = require('./analysis/confluence');
-        const th = String(confluence.getThreshold());
+        const strategy = require('./analysis/strategy');
+        const th = String(strategy.getThreshold());
         const helpMessage =
             `Kripto Sinyal Botu (Hyperliquid)\n\n` +
             `• /scan — SCAN_COINS listesini tarar\n` +
@@ -335,7 +336,7 @@ class TelegramManager {
             `• /testtrade [alias] — Degen test (TEST_TRADE_ENABLED=true)\n` +
             `• /help\n\n` +
             `Sinyal eşiği: ±${th} (SIGNAL_THRESHOLD, varsayılan 36). RSI güvenlik: SIGNAL_RSI_FILTER, SIGNAL_RSI_BLOCK_LONG/SHORT.\n` +
-            `Arka plan sürekli tarar; sinyal yoksa mesaj atmaz — /status ile tur sayısına bakın.\n` +
+            `Strateji: SIGNAL_STRATEGY (confluence / bollinger / hybrid). Arka plan sürekli tarar; sinyal yoksa mesaj atmaz — /status ile tur sayısına bakın.\n` +
             `Coin listesi: SCAN_COINS (virgülle, örn. BTC,ETH,SOL). Varsayılan 7 coin.\n` +
             `Arka plan TF: varsayılan scalp 5m+15m (SCAN_MODE=scalp). Geniş: SCAN_MODE=full veya SCAN_TIMEFRAMES=...\n` +
             `Tur: SCAN_INTERVAL (varsayılan 30s), gecikme: SCAN_PAIR_DELAY_MS (varsayılan 0).\n` +

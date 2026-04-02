@@ -1,5 +1,5 @@
 const exchange = require('./exchange');
-const confluence = require('./analysis/confluence');
+const strategy = require('./analysis/strategy');
 const telegram = require('./telegram');
 const { getScanCoins } = require('../config/coins');
 const winston = require('winston');
@@ -134,7 +134,7 @@ class MarketScanner {
                             rsi: null,
                             trend: '',
                             blockedByRsi: false,
-                            threshold: confluence.getThreshold(timeframe),
+                            threshold: strategy.getThreshold(timeframe),
                             reason: 'insufficient_candles'
                         }
                     };
@@ -142,7 +142,7 @@ class MarketScanner {
                 return null;
             }
 
-            const ev = confluence.evaluate(candles, timeframe);
+            const ev = strategy.evaluate(candles, timeframe);
             const signal = ev.signal;
 
             if (!signal) {
