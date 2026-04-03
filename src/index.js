@@ -61,7 +61,8 @@ async function main() {
 
     logger.info('📡 scanner.start() çağrılıyor — sürekli tarama başlıyor...');
     scanner.start().catch((err) => {
-        logger.error(`❌ Tarama döngüsü: ${err.message}`);
+        logger.error(`❌ Tarama döngüsü hata: ${err.message}`);
+        logger.error(`Stack: ${err.stack}`);
     });
 
     logger.info(

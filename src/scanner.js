@@ -83,19 +83,29 @@ class MarketScanner {
                 }
             }
 
-            for (const [symbol, bestSig] of Object.entries(this.bestSignalPerCoin)) {
-                const key = bestSig._dedupeKey;
-                if (key && this.lastSignals[key]) continue;
+            // Gönder: her coin için best signal (paralel — bir hata tüm turu kesmesin)
+            const sendPromises = Object.entries(this.bestSignalPerCoin).map(async ([symbol, bestSig]) => {
+                try {
+                    const key = bestSig._dedupeKey;
+                    if (key && this.lastSignals[key]) return false;
 
-                delete bestSig._dedupeKey;
-                const sent = await telegram.sendSignal(symbol, bestSig.timeframe, bestSig);
-                if (sent) {
-                    if (key) this.lastSignals[key] = true;
-                    signals++;
-                } else {
-                    this.logger.error(`Sinyal Telegram'a iletilemedi (${symbol})`);
+                    delete bestSig._dedupeKey;
+                    const sent = await telegram.sendSignal(symbol, bestSig.timeframe, bestSig);
+                    if (sent) {
+                        if (key) this.lastSignals[key] = true;
+                        return true;
+                    } else {
+                        this.logger.error(`Sinyal Telegram'a iletilemedi (${symbol})`);
+                        return false;
+                    }
+                } catch (e) {
+                    this.logger.error(`[sendSignal] ${symbol} hata: ${e.message}`);
+                    return false;
                 }
-            }
+            });
+
+            const results = await Promise.allSettled(sendPromises);
+            signals = results.filter((r) => r.status === 'fulfilled' && r.value === true).length;
         } finally {
             this.scanInProgress = false;
         }
@@ -200,9 +210,10 @@ class MarketScanner {
                 
                 const waitMs = this.getLoopIntervalMs();
                 console.log(
-                    `[scanner] Tur bitti. ${(waitMs / 1000).toFixed(0)}s bekliyorum...`
+                    `[scanner] Tur bitti. ${(waitMs / 1000).toFixed(0)}s bekliyorum...\n`
                 );
                 await new Promise((resolve) => setTimeout(resolve, waitMs));
+                console.log(`[scanner] Bekleme bitti, yeni tur başlıyor...`);
             } catch (error) {
                 consecutiveErrors++;
                 this.logger.error(`Döngü hatası (${consecutiveErrors}/${maxConsecutiveErrors}): ${error.message}`);
