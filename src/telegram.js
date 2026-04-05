@@ -279,7 +279,16 @@ class TelegramManager {
     }
 
     async launch() {
-        await this.bot.launch();
+        // bot.launch() polling modda sürekli çalışır → await ile beklemeden başlatıyoruz
+        // ki index.js'deki scanner.start() hemen çalışabilsin (paralel).
+        this.bot.launch().catch((err) => {
+            console.error('❌ Telegram launch error:', err.message);
+            process.exit(1);
+        });
+        
+        // Telegram bağlantısı kurulsun diye 1s bekle, sonra heartbeat başlat
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log('✅ Telegram polling started (non-blocking).');
         this.startHeartbeat();
     }
 
