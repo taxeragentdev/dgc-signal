@@ -25,8 +25,8 @@ SCAN_INTERVAL=30000
 SCAN_PAIR_DELAY_MS=0
 SCAN_COINS=BTC,ETH,SOL,VIRTUAL,HYPE,SUI,ASTER
 
-# 5 dakikada bir durum özeti (isteğe bağlı)
-STATUS_HEARTBEAT_MS=300000
+# 15 dakikada bir durum özeti (isteğe bağlı, 0 = kapalı)
+STATUS_HEARTBEAT_MS=900000
 
 # --- Otomatik işlem (gerçek emir; 8 ajan) ---
 # ACP 403 hatası düzelene kadar kapalı tutun

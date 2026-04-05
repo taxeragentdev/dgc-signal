@@ -293,7 +293,7 @@ class TelegramManager {
     }
 
     /**
-     * Arka plan tarama sürer; sadece özet bilgi (varsayılan 5 dk).
+     * Arka plan tarama sürer; sadece özet bilgi (varsayılan 15 dk = 900000ms).
      * STATUS_HEARTBEAT_MS=0 kapatır.
      */
     startHeartbeat() {
@@ -302,10 +302,10 @@ class TelegramManager {
         const parsed = parseInt(raw, 10);
         const intervalMs =
             raw === undefined || raw === ''
-                ? 300000
+                ? 900000  // Varsayılan 15 dakika
                 : Number.isFinite(parsed) && parsed > 0
                   ? parsed
-                  : 300000;
+                  : 900000;
 
         setInterval(() => {
             try {
@@ -318,11 +318,21 @@ class TelegramManager {
                         : null;
                 const agoStr =
                     agoMin != null ? `${agoMin} dk önce` : 'henüz tam tur yok';
+                
+                const { getStrategy } = require('./analysis/strategy');
+                const strat = getStrategy();
+                
                 const msg =
-                    `📊 Durum — arka plan tarama çalışıyor (sinyal olsun/olmasın).\n` +
-                    `Tur ${st.roundIndex > 0 ? `#${st.roundIndex} · ` : ''}` +
-                    `${st.pairs} adım (coin×TF), ${st.signals} yeni sinyal (${agoStr}).`;
-                this.sendMessage(msg);
+                    `📊 <b>Durum Raporu</b> (${(intervalMs / 60000).toFixed(0)} dk aralıklı)\n\n` +
+                    `✅ Arka plan tarama aktif (sürekli)\n` +
+                    `📈 Strateji: <b>${strat.toUpperCase()}</b>\n` +
+                    `🔄 Son tur: #${st.roundIndex > 0 ? st.roundIndex : '?'} (${st.pairs} coin×TF adım)\n` +
+                    `🎯 Yeni sinyal: <b>${st.signals}</b> (${agoStr})\n` +
+                    `⏱️ Tur süresi: ~${((st.durationMs || 0) / 1000).toFixed(1)}s\n\n` +
+                    `💡 Sinyal gelince otomatik bildiririm. /status ile anlık durum.`;
+                
+                this.bot.telegram.sendMessage(this.chatId, msg, { parse_mode: 'HTML' })
+                    .catch(e => console.error('[heartbeat] send error:', e.message));
             } catch (e) {
                 console.error('[heartbeat]', e.message);
             }
@@ -433,21 +443,58 @@ class TelegramManager {
         message += `<i>Gerçek likidasyon borsa kurallarına bağlıdır.</i>\n\n`;
 
         message += `🧠 Güven skoru: ${escapeHtml(String(signal.score))}/100\n`;
-        message += `RSI: ${escapeHtml(signal.indicators.rsi.toFixed(1))}\n`;
-        message += `Yapı: ${escapeHtml(String(signal.trend))}\n`;
+        message += `📊 Yapı: ${escapeHtml(String(signal.trend))}\n\n`;
+
+        // 📊 İndikatör Detayları (TrendTrader tarzı)
+        message += `📈 <b>İndikatörler:</b>\n`;
+        if (signal.indicators) {
+            const ind = signal.indicators;
+            if (Number.isFinite(ind.rsi)) {
+                const rsiEmoji = ind.rsi > 70 ? '🔴' : ind.rsi < 30 ? '🟢' : '⚪';
+                message += `  ${rsiEmoji} RSI: <b>${ind.rsi.toFixed(1)}</b>\n`;
+            }
+            if (ind.macd && Number.isFinite(ind.macd.histogram)) {
+                const macdEmoji = ind.macd.histogram > 0 ? '📈' : '📉';
+                message += `  ${macdEmoji} MACD: ${ind.macd.histogram > 0 ? '+' : ''}${ind.macd.histogram.toFixed(4)}\n`;
+            }
+            if (Number.isFinite(ind.ema20)) {
+                const emaStatus = signal.price > ind.ema20 ? '↑' : '↓';
+                message += `  ${emaStatus} EMA20: $${ind.ema20.toFixed(4)} (fiyat ${emaStatus === '↑' ? 'üstünde' : 'altında'})\n`;
+            }
+            if (ind.bb && Number.isFinite(ind.bb.upper)) {
+                const bbPos = signal.price > ind.bb.upper ? 'üst' : signal.price < ind.bb.lower ? 'alt' : 'orta';
+                message += `  📊 BB: $${ind.bb.lower.toFixed(4)} / $${ind.bb.middle.toFixed(4)} / $${ind.bb.upper.toFixed(4)} (${bbPos})\n`;
+            }
+            if (Number.isFinite(ind.adx)) {
+                const adxEmoji = ind.adx > 25 ? '💪' : '😴';
+                message += `  ${adxEmoji} ADX: <b>${ind.adx.toFixed(1)}</b> (trend ${ind.adx > 25 ? 'güçlü' : 'zayıf'})\n`;
+            }
+            if (Number.isFinite(ind.atr)) {
+                message += `  📏 ATR: $${ind.atr.toFixed(4)} (${((ind.atr / signal.price) * 100).toFixed(2)}% volatilite)\n`;
+            }
+            if (Number.isFinite(ind.volumeRatio)) {
+                const volEmoji = ind.volumeRatio > 1.5 ? '🔥' : ind.volumeRatio > 1.0 ? '⚡' : '💤';
+                message += `  ${volEmoji} Hacim: ${ind.volumeRatio.toFixed(2)}x ortalama\n`;
+            }
+        }
+        message += `\n`;
 
         if (process.env.TELEGRAM_SHOW_SCORE_DETAIL === 'true' && signal.scoreBreakdown) {
-            message += `📋 Skor detay: ${escapeHtml(String(signal.scoreBreakdown))}\n`;
+            message += `🔍 <b>Skor detay:</b>\n${escapeHtml(String(signal.scoreBreakdown))}\n\n`;
         }
 
-        if (signal.smc.sweep) {
-            message += `SMC: likidite süpürmesi (${escapeHtml(signal.smc.sweep.type)})\n`;
-        }
-        if (signal.smc.fvg) {
-            message += `SMC: FVG (${escapeHtml(signal.smc.fvg.type)})\n`;
-        }
-        if (signal.smc.ob) {
-            message += `SMC: OB (${escapeHtml(signal.smc.ob.type)})\n`;
+        if (signal.smc && (signal.smc.sweep || signal.smc.fvg || signal.smc.ob)) {
+            message += `💡 <b>Smart Money:</b>\n`;
+            if (signal.smc.sweep) {
+                message += `  🌊 Likidite süpürmesi (${escapeHtml(signal.smc.sweep.type)})\n`;
+            }
+            if (signal.smc.fvg) {
+                message += `  📦 FVG - Fair Value Gap (${escapeHtml(signal.smc.fvg.type)})\n`;
+            }
+            if (signal.smc.ob) {
+                message += `  🧱 Order Block (${escapeHtml(signal.smc.ob.type)})\n`;
+            }
+            message += `\n`;
         }
 
         const notify =
