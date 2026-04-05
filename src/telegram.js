@@ -102,9 +102,47 @@ class TelegramManager {
                 `📡 Son tamamlanan tur: ${lastTur} ${ago}\n\n` +
                 `Sinyal yoksa Telegram sessiz kalır; tur yine de işlenir.\n\n` +
                 `AUTO_TRADE: ${process.env.AUTO_TRADE_ENABLED === 'true' ? 'açık' : 'kapalı'}\n` +
-                `/autotrade list — ajan durumu`,
+                `/autotrade list — ajan durumu\n` +
+                `/backtest [300] — geçmiş test (300 mum)`,
                 { parse_mode: undefined }
             );
+        });
+
+        this.bot.command('backtest', async (ctx) => {
+            const backtest = require('./backtest');
+            const { getScanCoins } = require('../config/coins');
+            const { getScanTimeframes } = require('./scanConfig');
+            
+            const args = ctx.message.text.split(' ').slice(1);
+            const lookback = args[0] ? parseInt(args[0], 10) : 300;
+            
+            if (lookback < 50 || lookback > 1000) {
+                return ctx.reply('⚠️ Geçersiz lookback. Kullanım: /backtest [50-1000]');
+            }
+            
+            ctx.reply(`⏳ Backtest başlatılıyor (${lookback} mum)... Bu 1-2 dakika sürebilir.`);
+            
+            try {
+                const coins = getScanCoins();
+                const tfs = getScanTimeframes();
+                
+                const results = await backtest.backtestMultiple(coins, tfs, lookback);
+                const report = backtest.formatBacktestReport(results);
+                
+                if (report.length > 4000) {
+                    const chunks = report.match(/[\s\S]{1,4000}/g) || [];
+                    for (const chunk of chunks) {
+                        await ctx.reply(chunk, { parse_mode: 'HTML' });
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                } else {
+                    await ctx.reply(report, { parse_mode: 'HTML' });
+                }
+                
+                ctx.reply('✅ Backtest tamamlandı. Sonuçlara göre AUTO_TRADE_MIN_SCORE ayarlayın.');
+            } catch (error) {
+                ctx.reply(`❌ Backtest hatası: ${error.message}`);
+            }
         });
 
         this.bot.command('check', async (ctx) => {
@@ -343,29 +381,27 @@ class TelegramManager {
         const strategy = require('./analysis/strategy');
         const th = String(strategy.getThreshold());
         const helpMessage =
-            `Kripto Sinyal Botu (Hyperliquid)\n\n` +
-            `• /scan — SCAN_COINS listesini tarar\n` +
-            `• /scan COIN [TF] — Tek coin analizi\n` +
-            `• /scalp — 5m+15m tek tur (arka plan zaten aynı TF ile sürekli; SCAN_MODE)\n` +
-            `• /scan 5m,15m,30m,1h için SCAN_MODE=full ya da SCAN_TIMEFRAMES=5m,15m,30m,1h\n` +
-            `• /list — Coin listesi\n` +
-            `• /status — Özet\n` +
-            `• /check — Borsa + sohbet\n` +
-            `• /autotrade list | on <alias> | off <alias> — ajan oto-trade\n` +
-            `• /testtrade [alias] — Degen test (TEST_TRADE_ENABLED=true)\n` +
-            `• /help\n\n` +
-            `Sinyal eşiği: ±${th} (SIGNAL_THRESHOLD, varsayılan 36). RSI güvenlik: SIGNAL_RSI_FILTER, SIGNAL_RSI_BLOCK_LONG/SHORT.\n` +
-            `Strateji: SIGNAL_STRATEGY (confluence / bollinger / hybrid). Arka plan sürekli tarar; sinyal yoksa mesaj atmaz — /status ile tur sayısına bakın.\n` +
-            `Coin listesi: SCAN_COINS (virgülle, örn. BTC,ETH,SOL). Varsayılan 7 coin.\n` +
-            `Arka plan TF: varsayılan scalp 5m+15m (SCAN_MODE=scalp). Geniş: SCAN_MODE=full veya SCAN_TIMEFRAMES=...\n` +
-            `Tur: SCAN_INTERVAL (varsayılan 30s), gecikme: SCAN_PAIR_DELAY_MS (varsayılan 0).\n` +
-            `Durum özeti: STATUS_HEARTBEAT_MS=300000 (5 dk), kapat: 0.\n\n` +
-            `Railway: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, Replicas=1. Oto-trade: AUTO_TRADE_ENABLED, AGENTS_JSON.\n` +
-            `Test: TEST_TRADE_ENABLED=true, isteğe TEST_TRADE_SYMBOL, TEST_TRADE_PCT (SL/TP mesafesi, varsayılan 0.01=%1).\n` +
-            `Degen fiyat: BTC/ETH tam sayı tick (DEGEN_INTEGER_PRICE_COINS=BTC,ETH).\n\n` +
-            `Oto-trade: ACP x-api-key + agent cüzdanı; leaderboard RSA anahtarları ayrıdır (join).\n` +
-            `Degen: limit + TP + SL birlikte gönderilir. AGENTS_JSON'da autoTrade:false veya /autotrade off.`;
-        ctx.reply(helpMessage);
+            `🤖 Kripto Sinyal Botu (Hyperliquid)\n\n` +
+            `📊 <b>Komutlar:</b>\n` +
+            `• /status — Bot durumu, son tur\n` +
+            `• /scan [COIN] [TF] — Manuel tarama\n` +
+            `• /scalp — 5m+15m hızlı tarama\n` +
+            `• /backtest [300] — Geçmiş test (300 mum)\n` +
+            `• /autotrade list | on/off <alias>\n` +
+            `• /testtrade [alias] — Test pozisyon\n` +
+            `• /check — Borsa bağlantı testi\n` +
+            `• /list — Coin listesi\n\n` +
+            `🎯 <b>Strateji:</b> ${strategy.getStrategy().toUpperCase()}\n` +
+            `📐 Sinyal eşiği: ±${th} (SIGNAL_THRESHOLD)\n` +
+            `🔄 Arka plan: sürekli tarama (SCAN_INTERVAL=30s)\n` +
+            `📊 TF: ${process.env.SCAN_MODE || 'scalp'} (5m+15m)\n\n` +
+            `🤖 <b>Oto-trade:</b> ${process.env.AUTO_TRADE_ENABLED === 'true' ? 'AÇIK' : 'KAPALI'}\n` +
+            `  Min skor: ${process.env.AUTO_TRADE_MIN_SCORE || 0} (AUTO_TRADE_MIN_SCORE)\n` +
+            `  → Backtest ile optimize edin!\n\n` +
+            `💡 Arka plan sürekli tarar, sinyal yoksa sessiz kalır.\n` +
+            `📈 15 dakikada bir durum raporu (STATUS_HEARTBEAT_MS).\n` +
+            `🎯 Sadece güçlü sinyaller için oto-trade açılır.`;
+        ctx.reply(helpMessage, { parse_mode: 'HTML' });
     }
 
     /**

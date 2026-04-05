@@ -102,13 +102,21 @@ async function runAutoTradeOnSignal(opts) {
         return;
     }
 
+    const { signal, sizing } = opts;
+    
+    // Minimum sinyal skoru filtresi (sadece güçlü sinyaller için trade aç)
+    const minScore = parseInt(process.env.AUTO_TRADE_MIN_SCORE, 10) || 0;
+    if (signal.score < minScore) {
+        console.log(`[autoTrade] Sinyal skoru ${signal.score} < ${minScore} (AUTO_TRADE_MIN_SCORE) — atlandı`);
+        return;
+    }
+
     const agents = parseAgentsFromEnv();
     if (agents.length === 0) {
         console.warn('[autoTrade] AUTO_TRADE_ENABLED ama AGENTS_JSON boş veya yok.');
         return;
     }
 
-    const { signal, sizing } = opts;
     const hlCoin = sizing.hlCoin;
     const pairDegen = toDegenPairName(hlCoin).toUpperCase();
     const side = signal.type === 'LONG' ? 'long' : 'short';

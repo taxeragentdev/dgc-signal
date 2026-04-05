@@ -7,8 +7,8 @@
 TELEGRAM_BOT_TOKEN=YOUR_NEW_BOT_TOKEN_FROM_BOTFATHER
 TELEGRAM_CHAT_ID=750170873
 
-# --- Strateji (yeni: Bollinger Band eklendi) ---
-SIGNAL_STRATEGY=bollinger
+# --- Strateji (yeni: Confluence - çok göstergeli analiz) ---
+SIGNAL_STRATEGY=confluence
 
 # Bollinger'de eşik 1 (her banda dokunma kontrol edilir; konfirmasyon RSI+volume'de)
 # Confluence için: 28-40 arası (düşük=sık sinyal/gürültü, yüksek=seyrek/seçici)
@@ -32,6 +32,8 @@ STATUS_HEARTBEAT_MS=900000
 # ACP 403 hatası düzelene kadar kapalı tutun
 AUTO_TRADE_ENABLED=false
 AUTO_TRADE_NOTIFY=false
+# Minimum sinyal skoru (backtest sonrası optimize edin, örn: 50-70)
+AUTO_TRADE_MIN_SCORE=55
 AGENTS_JSON=[{"alias":"friday","apiKey":"acp-8bd06898e06459bc8d3e","walletAddress":"0x28544b7bfce18b2be91ec1c4260fe963cd4eae39"},{"alias":"ichimoku","apiKey":"acp-82aac3d0b8a1bb73193f","walletAddress":"0x4DF5A7C7Da46b62F94FC7F7a23EBDb5723464c93"},{"alias":"pokedex","apiKey":"acp-f001c6ea9953638e9d5b","walletAddress":"0xD13f43f8ac575717bD627F03C19CCB9cC8De333F"},{"alias":"raichu","apiKey":"acp-8fccbd4e63140922bbc2","walletAddress":"0x09eE47977167eF955960761cAd68Bd0E3439C8F8"},{"alias":"squirtle","apiKey":"acp-7b2b024956edafaa39dc","walletAddress":"0x8e83c971AF1f3c7B88Db202F5425086ba494c7ca"},{"alias":"taxerclaw","apiKey":"acp-cdeae3dce5fef2dbe4ec","walletAddress":"0xCC4188F955B7594B272E7bAE0e082089A060CB31"},{"alias":"virgen","apiKey":"acp-5245b63ccf304d0b0176","walletAddress":"0xA2c55E445A4b584e73d799E42431ec121A65edD0"},{"alias":"welles","apiKey":"acp-f547d9b89f89d20a47c9","walletAddress":"0x57e3a4877fa63d3803a15daeB2C7ac0fE30583cE"}]
 
 # Pozisyon (sabit marjin + kaldıraç)
